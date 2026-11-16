@@ -1,0 +1,317 @@
+{
+  "entities": {
+    "users": {
+      "title": "SIAKHLAK User Profile",
+      "description": "User authentication metadata, roles, portal approval status (PENDING/PENDING_VERIFICATION/ACTIVE/SUSPENDED/REVOKED/INACTIVE/ARCHIVED), and unit/class assignments.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "emailVerified": { "type": "boolean" },
+        "full_name": { "type": "string", "maxLength": 120 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "role": { "type": "string", "enum": ["STUDENT", "PARENT", "TEACHER", "HOMEROOM_TEACHER", "COMMITTEE_ADMIN", "FOUNDATION_ADMIN", "SUPER_ADMIN", "super_admin", "yayasan", "komite_pendidikan_agama", "guru", "siswa", "orang_tua"] },
+        "roles": { "type": "array", "maxItems": 6, "items": { "type": "string", "maxLength": 40 } },
+        "account_status": { "type": "string", "enum": ["PENDING", "PENDING_VERIFICATION", "ACTIVE", "SUSPENDED", "REVOKED", "INACTIVE", "ARCHIVED", "active", "inactive", "suspended", "pending", "pending_verification", "revoked", "archived"] },
+        "profile_status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"] },
+        "requested_portal": { "type": "string", "enum": ["parent_student", "teacher", "committee", "foundation"] },
+        "requested_role": { "type": "string", "enum": ["STUDENT", "PARENT", "TEACHER", "HOMEROOM_TEACHER", "COMMITTEE_ADMIN"] },
+        "organization_id": { "type": "string", "maxLength": 80 },
+        "assignedUnits": { "type": "array", "maxItems": 5, "items": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] } },
+        "assignedClassIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 128 } },
+        "linkedStudentIds": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 128 } },
+        "allowIndividualStudentAccess": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "assignedUnits", "allowIndividualStudentAccess"]
+    },
+    "user_permissions": {
+      "title": "Granular User Permissions",
+      "description": "Strict permission matrix managed exclusively by FOUNDATION_ADMIN.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "organization_id": { "type": "string", "maxLength": 80 },
+        "permissions": { "type": "array", "maxItems": 40, "items": { "type": "string", "maxLength": 60 } },
+        "assigned_units": { "type": "array", "maxItems": 5, "items": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] } },
+        "assigned_classes": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 128 } },
+        "updated_by": { "type": "string", "maxLength": 128 },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "organization_id", "permissions", "assigned_units", "assigned_classes", "updated_by", "updated_at"]
+    },
+    "guardians": {
+      "title": "Parent / Guardian Profiles",
+      "description": "Verified and onboarding parent/guardian profile documents.",
+      "type": "object",
+      "properties": {
+        "user_uid": { "type": "string", "maxLength": 128 },
+        "full_name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 300 },
+        "relationship_type": { "type": "string", "enum": ["ayah", "ibu", "wali"] },
+        "linked_student_ids": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 128 } },
+        "verification_status": { "type": "string", "enum": ["verified", "pending", "rejected"] },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["user_uid", "full_name", "email", "relationship_type", "verification_status", "status"]
+    },
+    "committee_members": {
+      "title": "Religious Committee Members",
+      "description": "Komite Pendidikan Agama member profiles and appointment decrees.",
+      "type": "object",
+      "properties": {
+        "user_uid": { "type": "string", "maxLength": 128 },
+        "full_name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "committee_position": { "type": "string", "maxLength": 120 },
+        "appointment_number": { "type": "string", "maxLength": 80 },
+        "appointment_date": { "type": "string", "maxLength": 30 },
+        "term_start": { "type": "string", "maxLength": 30 },
+        "term_end": { "type": "string", "maxLength": 30 },
+        "membership_status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "ARCHIVED"] },
+        "profile_status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"] },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["user_uid", "full_name", "email", "committee_position", "status"]
+    },
+    "foundation_admins": {
+      "title": "Foundation Admin Profiles",
+      "description": "Yayasan Admin personnel records and official appointment tracking.",
+      "type": "object",
+      "properties": {
+        "user_uid": { "type": "string", "maxLength": 128 },
+        "full_name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "position": { "type": "string", "maxLength": 120 },
+        "division": { "type": "string", "maxLength": 120 },
+        "appointment_number": { "type": "string", "maxLength": 80 },
+        "appointment_date": { "type": "string", "maxLength": 30 },
+        "employment_status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "ARCHIVED"] },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["user_uid", "full_name", "email", "position", "division", "status"]
+    },
+    "student_guardians": {
+      "title": "Verified Student Guardianships",
+      "description": "Strict mapping between verified guardians and students.",
+      "type": "object",
+      "properties": {
+        "student_id": { "type": "string", "maxLength": 128 },
+        "guardian_uid": { "type": "string", "maxLength": 128 },
+        "relationship_type": { "type": "string", "enum": ["ayah", "ibu", "wali", "siswa"] },
+        "verification_status": { "type": "string", "enum": ["verified", "pending", "rejected"] },
+        "organization_id": { "type": "string", "maxLength": 80 },
+        "created_by": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["student_id", "guardian_uid", "relationship_type", "verification_status", "organization_id", "created_by"]
+    },
+    "cohorts": {
+      "title": "Student Cohorts (Angkatan)",
+      "description": "Cohorts grouped by admission year and education unit.",
+      "type": "object",
+      "properties": {
+        "cohortName": { "type": "string", "maxLength": 100 },
+        "educationUnitId": { "type": "string", "maxLength": 128 },
+        "educationLevel": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK"] },
+        "admissionYear": { "type": "string", "maxLength": 10 },
+        "graduationYear": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["cohortName", "educationUnitId", "educationLevel", "admissionYear", "status"]
+    },
+    "academic_years": {
+      "title": "Academic Years",
+      "description": "Official academic years managed by Yayasan.",
+      "type": "object",
+      "properties": {
+        "yearName": { "type": "string", "maxLength": 40 },
+        "isActive": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["yearName", "isActive", "status"]
+    },
+    "semesters": {
+      "title": "Semesters",
+      "description": "Ganjil / Genap semesters linked to academic years.",
+      "type": "object",
+      "properties": {
+        "academicYearId": { "type": "string", "maxLength": 128 },
+        "yearName": { "type": "string", "maxLength": 40 },
+        "semester": { "type": "string", "enum": ["Ganjil", "Genap"] },
+        "name": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["academicYearId", "yearName", "semester", "name", "isActive", "status"]
+    },
+    "class_student_history": {
+      "title": "Class Movement & Promotion History",
+      "description": "Immutable history of student class enrollment, promotion, and transfer.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 128 },
+        "nis": { "type": "string", "maxLength": 50 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "educationLevel": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK"] },
+        "cohortId": { "type": "string", "maxLength": 128 },
+        "academicYearId": { "type": "string", "maxLength": 128 },
+        "toClassId": { "type": "string", "maxLength": 128 },
+        "movementType": { "type": "string", "enum": ["ENROLLMENT", "PROMOTION", "TRANSFER"] }
+      },
+      "required": ["studentId", "nis", "studentName", "educationLevel", "toClassId", "movementType"]
+    },
+    "class_assignments": {
+      "title": "Teacher & Homeroom Class Assignments",
+      "description": "Formal mapping of Teacher/Homeroom accounts to classes, units, and academic periods.",
+      "type": "object",
+      "properties": {
+        "teacher_uid": { "type": "string", "maxLength": 128 },
+        "class_id": { "type": "string", "maxLength": 128 },
+        "education_unit_id": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "academic_year_id": { "type": "string", "maxLength": 128 },
+        "assignment_status": { "type": "string", "enum": ["active", "inactive", "archived"] },
+        "is_homeroom": { "type": "boolean" },
+        "organization_id": { "type": "string", "maxLength": 80 },
+        "created_by": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["teacher_uid", "class_id", "education_unit_id", "academic_year_id", "assignment_status", "organization_id", "created_by"]
+    },
+    "units": {
+      "title": "Education Units",
+      "description": "Master profiles for Foundation education levels (TK, SD, SMP, SMA, SMK).",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "education_level": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK"] },
+        "name": { "type": "string", "maxLength": 120 },
+        "headName": { "type": "string", "maxLength": 120 },
+        "studentCount": { "type": "number" },
+        "teacherCount": { "type": "number" },
+        "classCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["code", "name", "headName", "studentCount", "teacherCount", "classCount"]
+    },
+    "classes": {
+      "title": "School Classes",
+      "description": "Class groups within each unit, cohort, academic year, and semester.",
+      "type": "object",
+      "properties": {
+        "unitCode": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "educationLevel": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK"] },
+        "educationUnitId": { "type": "string", "maxLength": 128 },
+        "educationUnitName": { "type": "string", "maxLength": 120 },
+        "name": { "type": "string", "maxLength": 80 },
+        "level": { "type": "string", "maxLength": 40 },
+        "cohortId": { "type": "string", "maxLength": 128 },
+        "academicYearId": { "type": "string", "maxLength": 128 },
+        "semesterId": { "type": "string", "maxLength": 128 },
+        "homeroomTeacherName": { "type": "string", "maxLength": 120 },
+        "studentCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["unitCode", "name", "level", "homeroomTeacherName", "studentCount"]
+    },
+    "teachers": {
+      "title": "Master Teachers",
+      "description": "Teachers & PAI educators across Foundation units.",
+      "type": "object",
+      "properties": {
+        "nip": { "type": "string", "maxLength": 50 },
+        "user_uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "unitCode": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "roleTitle": { "type": "string", "maxLength": 100 },
+        "isPaiTeacher": { "type": "boolean" },
+        "profile_status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"] },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["nip", "name", "unitCode", "roleTitle", "isPaiTeacher"]
+    },
+    "students": {
+      "title": "Master Students",
+      "description": "Registered student profiles mapped to official education level, cohort, academic year, and class.",
+      "type": "object",
+      "properties": {
+        "student_id": { "type": "string", "maxLength": 128 },
+        "nis": { "type": "string", "maxLength": 50 },
+        "nisn": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "maxLength": 120 },
+        "unitCode": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "education_level": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK"] },
+        "education_unit_id": { "type": "string", "maxLength": 128 },
+        "cohort_id": { "type": "string", "maxLength": 128 },
+        "academic_year_id": { "type": "string", "maxLength": 128 },
+        "classId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 80 },
+        "gender": { "type": "string", "enum": ["L", "P"] },
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "guardianUids": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 128 } },
+        "profile_status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"] },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] },
+        "account_status": { "type": "string", "enum": ["PENDING", "ACTIVE", "INACTIVE", "ARCHIVED"] }
+      },
+      "required": ["nis", "name", "unitCode", "classId", "className", "gender"]
+    },
+    "studentAssessments": {
+      "title": "31-Indicator Student Assessments",
+      "description": "Individual student Akhlakul Karimah 31-indicator assessments (scale 1-4 or NULL).",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "unitCode": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "periodId": { "type": "string", "maxLength": 128 },
+        "className": { "type": "string", "maxLength": 80 },
+        "scores": { "type": "object" },
+        "averageScore": { "type": "number" },
+        "verificationStatus": { "type": "string", "enum": ["Draft", "Menunggu Verifikasi", "Terverifikasi"] },
+        "isPublishedToParents": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["studentId", "studentName", "unitCode", "periodId", "className", "scores", "verificationStatus", "createdBy"]
+    },
+    "mutabaahLogs": {
+      "title": "Mutabaah Logs",
+      "description": "Student Mutabaah daily/periodic logs.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "unitCode": { "type": "string", "enum": ["TK", "SD", "SMP", "SMA", "SMK", "KB/TK", "SD/SDI"] },
+        "classId": { "type": "string", "maxLength": 128 },
+        "periodId": { "type": "string", "maxLength": 128 },
+        "logDate": { "type": "string", "maxLength": 30 },
+        "sholatWajibCount": { "type": "number" },
+        "tilawahPages": { "type": "number" },
+        "dzikirCompleted": { "type": "boolean" },
+        "infaqDone": { "type": "boolean" },
+        "isPublishedToParents": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["studentId", "studentName", "unitCode", "classId", "periodId", "logDate", "sholatWajibCount", "tilawahPages", "dzikirCompleted", "infaqDone", "isPublishedToParents", "createdBy"]
+    },
+    "auditLogs": {
+      "title": "Security & Data Audit Logs",
+      "description": "Immutable activity audit trail for permissions, master data, promotion, and imports.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorName": { "type": "string", "maxLength": 120 },
+        "actorRole": { "type": "string", "maxLength": 50 },
+        "action": { "type": "string", "maxLength": 120 },
+        "targetCollection": { "type": "string", "maxLength": 80 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "maxLength": 1500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorName", "actorRole", "action", "targetCollection", "targetId", "summary", "createdAt"]
+    }
+  }
+}

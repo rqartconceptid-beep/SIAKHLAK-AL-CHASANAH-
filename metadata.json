@@ -1,0 +1,6 @@
+{
+  "name": "SIAKHLAK Yayasan",
+  "description": "Sistem Informasi Akhlakul Karimah, Pendidikan Agama, dan Pengawasan Komite Pendidikan Agama Yayasan (Jenjang TK, SD, SMP, SMA, SMK).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
