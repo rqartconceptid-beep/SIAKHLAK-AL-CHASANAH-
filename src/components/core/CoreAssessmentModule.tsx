@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
   ClassAssignment,
   ExcelImportLog,
   getScoreValue,
+  InstrumentVersion,
   isFoundationOrSuperAdmin,
   matchesEducationLevel,
   normalizeRole,
@@ -22,6 +24,11 @@ import {
   UserProfile,
   VerificationStatus,
 } from '../../types/siakhlak';
+import { isEmulatorMode } from '../../lib/firebase';
+import {
+  getSelectableCreationVersions,
+  resolveAssessmentInstrument,
+} from '../../utils/instrumentResolver';
 import {
   commitExcelAssessmentImport,
   createAuditLog,
@@ -30,7 +37,10 @@ import {
   saveStudentAssessment,
   toggleAssessmentPublishToParents,
 } from '../../services/siakhlakService';
-import { downloadAssessmentTemplate } from '../../utils/excelTemplate';
+import {
+  downloadAssessmentTemplate,
+  downloadTeacherAssignmentAssessmentTemplate,
+} from '../../utils/excelTemplate';
 import {
   computeScaleAveragePct,
   generateErrorReportCsv,
@@ -38,6 +48,7 @@ import {
   ParsedAssessmentPreview,
   validateAssessmentRevisionInput,
   validateWorkbookBuffer,
+  validateBatchAssessmentWorkbookBuffer,
 } from '../../utils/excelImportEngine';
 import { EmptyState, Panel, RestrictedNotice, SectionHeader } from '../ui/Primitives';
 import { FoundationReportHeader } from '../branding/FoundationBrand';
@@ -81,6 +92,7 @@ export function CoreAssessmentModule({
   const [activeTool, setActiveTool] = useState<'none' | 'template' | 'import' | 'manual'>('none');
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const canonicalRole = normalizeRole(profile.role);
   const isFoundationAdmin = isFoundationOrSuperAdmin(canonicalRole);
@@ -177,6 +189,10 @@ export function CoreAssessmentModule({
   const [manualNotes, setManualNotes] = useState('');
   const [manualRevisionReason, setManualRevisionReason] = useState('');
 
+  const isEmu = useMemo(() => isEmulatorMode(), []);
+  const selectableVersions = useMemo(() => getSelectableCreationVersions({ isEmulator: isEmu }), [isEmu]);
+  const [manualInstrumentVersion, setManualInstrumentVersion] = useState<InstrumentVersion>('v1.0-legacy');
+
   const activeManualPeriodId = manualPeriodId || allowedPeriods[0]?.id || '';
   const existingManualAssessment = useMemo(() => {
     if (!manualStudentId || !activeManualPeriodId) return undefined;
@@ -185,11 +201,21 @@ export function CoreAssessmentModule({
     );
   }, [assessments, manualStudentId, activeManualPeriodId]);
 
+  const activeFormResolution = useMemo(() => {
+    const v = existingManualAssessment ? existingManualAssessment.instrumentVersion : manualInstrumentVersion;
+    return resolveAssessmentInstrument(v, { isEmulator: isEmu, allowHistoricalFallback: true });
+  }, [existingManualAssessment, manualInstrumentVersion, isEmu]);
+
+  const activeFormIndicators = useMemo(() => {
+    return activeFormResolution.instrument?.indicators || AKHLAK_31_INDICATORS;
+  }, [activeFormResolution]);
+
   useEffect(() => {
     if (!manualStudentId) return;
     if (existingManualAssessment) {
+      setManualInstrumentVersion(existingManualAssessment.instrumentVersion || 'v1.0-legacy');
       const loadedScores: Record<string, number | null> = {};
-      AKHLAK_31_INDICATORS.forEach((ind) => {
+      activeFormIndicators.forEach((ind) => {
         loadedScores[ind.excelCode] = getScoreValue(existingManualAssessment.scores, ind);
       });
       setManualScores(loadedScores);
@@ -203,7 +229,7 @@ export function CoreAssessmentModule({
       setManualRevisionReason('');
     } else {
       const resetScores: Record<string, number | null> = {};
-      AKHLAK_31_INDICATORS.forEach((ind) => {
+      activeFormIndicators.forEach((ind) => {
         resetScores[ind.excelCode] = null;
       });
       setManualScores(resetScores);
@@ -212,7 +238,7 @@ export function CoreAssessmentModule({
       setManualVerStatus('Menunggu Verifikasi');
       setManualRevisionReason('');
     }
-  }, [manualStudentId, activeManualPeriodId, existingManualAssessment?.id, canVerifyAssessment]);
+  }, [manualStudentId, activeManualPeriodId, existingManualAssessment?.id, canVerifyAssessment, activeFormIndicators]);
 
   if (
     canonicalRole === 'COMMITTEE_ADMIN' ||
@@ -243,6 +269,7 @@ export function CoreAssessmentModule({
 
   const handleDownloadSingleTemplate = () => {
     setErrorMsg(null);
+    setSuccessMsg(null);
     if (!effectiveClass || !effectivePeriod) {
       setErrorMsg('Pilih Kelas dan Periode Aktif terlebih dahulu.');
       return;
@@ -253,18 +280,25 @@ export function CoreAssessmentModule({
       setErrorMsg('Belum ada siswa terdaftar di kelas ini.');
       return;
     }
-    downloadAssessmentTemplate({
-      student: targetStudent,
-      schoolClass: effectiveClass,
-      period: effectivePeriod,
-      assessmentMonth,
-      assessmentYear,
-      teacherIdentifier: `${profile.displayName} (${profile.email})`,
-    });
+    try {
+      downloadAssessmentTemplate({
+        student: targetStudent,
+        schoolClass: effectiveClass,
+        period: effectivePeriod,
+        assessmentMonth,
+        assessmentYear,
+        teacherIdentifier: `${profile.displayName} (${profile.email})`,
+      });
+      setSuccessMsg(`Template Excel untuk siswa ${targetStudent.name} (${targetStudent.nis}) berhasil diunduh.`);
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err) {
+      setErrorMsg('Gagal mengunduh template: ' + (err instanceof Error ? err.message : String(err)));
+    }
   };
 
   const handleDownloadAllClassTemplates = () => {
     setErrorMsg(null);
+    setSuccessMsg(null);
     if (!effectiveClass || !effectivePeriod) {
       setErrorMsg('Pilih Kelas dan Periode Aktif terlebih dahulu.');
       return;
@@ -273,20 +307,45 @@ export function CoreAssessmentModule({
       setErrorMsg('Belum ada siswa terdaftar di kelas ini.');
       return;
     }
-    classStudents.forEach((stu) => {
-      downloadAssessmentTemplate({
-        student: stu,
-        schoolClass: effectiveClass,
-        period: effectivePeriod,
-        assessmentMonth,
-        assessmentYear,
-        teacherIdentifier: `${profile.displayName} (${profile.email})`,
+    try {
+      classStudents.forEach((stu) => {
+        downloadAssessmentTemplate({
+          student: stu,
+          schoolClass: effectiveClass,
+          period: effectivePeriod,
+          assessmentMonth,
+          assessmentYear,
+          teacherIdentifier: `${profile.displayName} (${profile.email})`,
+        });
       });
-    });
+      setSuccessMsg(`Berhasil mengunduh template untuk seluruh ${classStudents.length} siswa kelas.`);
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err) {
+      setErrorMsg('Gagal mengunduh template kelas: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleDownloadMasterAssessmentWorkbook = () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      downloadTeacherAssignmentAssessmentTemplate(
+        classStudents.length > 0 ? classStudents : undefined,
+        effectiveClass || undefined,
+        effectivePeriod || undefined
+      );
+      setSuccessMsg(
+        'Template Master Guru, Wali Kelas & 31 Indikator (6 Sheet Lengkap dengan Rumus Otomatis) berhasil diunduh.'
+      );
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err) {
+      setErrorMsg('Gagal mengunduh template master: ' + (err instanceof Error ? err.message : String(err)));
+    }
   };
 
   const processFiles = async (files: FileList | File[]) => {
     setErrorMsg(null);
+    setSuccessMsg(null);
     setCommitResult(null);
     if (!effectiveClass || !effectivePeriod) {
       setErrorMsg('Pilih Kelas dan Periode Penilaian yang diizinkan sebelum memilih file Excel.');
@@ -305,14 +364,39 @@ export function CoreAssessmentModule({
 
     for (const file of fileArray) {
       const buffer = await file.arrayBuffer();
-      const parsed = validateWorkbookBuffer(buffer, file.name, {
-        selectedClass: effectiveClass,
-        selectedPeriod: effectivePeriod,
-        allStudents: students,
-        existingAssessments: assessments,
-        batchSeenKeys,
-      });
-      results.push(parsed);
+
+      // Check if file has PENILAIAN_31_INDIKATOR sheet for class batch import
+      let isBatch = false;
+      try {
+        const testWb = XLSX.read(buffer, { type: 'array' });
+        const hasBatchSheet = testWb.SheetNames.some(
+          (s: string) => s.trim().toUpperCase() === 'PENILAIAN_31_INDIKATOR'
+        );
+        if (hasBatchSheet) {
+          isBatch = true;
+          const batchParsed = validateBatchAssessmentWorkbookBuffer(buffer, file.name, {
+            selectedClass: effectiveClass,
+            selectedPeriod: effectivePeriod,
+            allStudents: students,
+            existingAssessments: assessments,
+            batchSeenKeys,
+          });
+          results.push(...batchParsed);
+        }
+      } catch {
+        // Fall back to single-student workbook parser
+      }
+
+      if (!isBatch) {
+        const parsed = validateWorkbookBuffer(buffer, file.name, {
+          selectedClass: effectiveClass,
+          selectedPeriod: effectivePeriod,
+          allStudents: students,
+          existingAssessments: assessments,
+          batchSeenKeys,
+        });
+        results.push(parsed);
+      }
     }
 
     setPreviews(results);
@@ -402,6 +486,9 @@ export function CoreAssessmentModule({
           teacherNotes: manualNotes,
           teacherIdentifier: `${profile.displayName} (${profile.email})`,
           importSource: 'manual',
+          instrumentVersion: existingManualAssessment
+            ? existingManualAssessment.instrumentVersion
+            : manualInstrumentVersion,
           ...(existingManualAssessment && cleanRevisionReason
             ? { revisionReason: cleanRevisionReason }
             : {}),
@@ -514,11 +601,18 @@ export function CoreAssessmentModule({
         </div>
       )}
 
+      {successMsg && (
+        <div className="p-3 border border-emerald-300 bg-emerald-50 rounded-md text-xs text-emerald-800 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
       {/* TOOL 1: DOWNLOAD TEMPLATE EXCEL */}
       {activeTool === 'template' && (
         <Panel
-          title="Generator Template Excel Resmi SIAKHLAK (4 Sheet)"
-          meta="Satu workbook untuk satu siswa & satu periode. Kolom P1–P31 dikosongkan tanpa nilai default."
+          title="Download Template Excel Resmi SIAKHLAK"
+          meta="Tersedia Template Master 6 Sheet (Guru, Wali Kelas, 31 Indikator & Rekap Otomatis) serta Template Per-Siswa (4 Sheet)."
         >
           {assignedClasses.length === 0 || allowedPeriods.length === 0 ? (
             <EmptyState
@@ -611,35 +705,54 @@ export function CoreAssessmentModule({
                 </div>
               </div>
 
+              {classStudents.length === 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p>
+                    <strong>Catatan:</strong> Belum ada siswa terhubung dengan kelas ini di database. Anda tetap dapat mengunduh <strong>Template Master 6 Sheet</strong> di bawah untuk memasukkan siswa secara manual.
+                  </p>
+                </div>
+              )}
+
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-md text-slate-600 space-y-1">
                 <p className="font-medium text-slate-800">
-                  Struktur Workbook Resmi:
+                  Pilihan Template Excel Resmi:
                 </p>
-                <p>
-                  1. <span className="font-mono">PETUNJUK</span> · 2.{' '}
-                  <span className="font-mono">IDENTITAS_PENILAIAN</span> · 3.{' '}
-                  <span className="font-mono">PENILAIAN</span> (student_nis, P1–P31, catatan_guru) · 4.{' '}
-                  <span className="font-mono">REFERENSI_INDIKATOR</span> (31 indikator resmi Yayasan)
-                </p>
+                <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                  <li>
+                    <strong>Template Master (6 Sheet):</strong> PETUNJUK, DATA_GURU_WALI_KELAS, REFERENSI, MASTER_31_INDIKATOR, PENILAIAN_31_INDIKATOR (seluruh siswa kelas sekaligus, skala 1–4, kosong = belum dinilai), dan REKAP_PENILAIAN (otomatis dengan rumus COUNT, SUM, AVERAGE, IF).
+                  </li>
+                  <li>
+                    <strong>Template Per-Siswa (4 Sheet):</strong> PETUNJUK, IDENTITAS_PENILAIAN, PENILAIAN (P01–P31 kosong tanpa default 4), REFERENSI_INDIKATOR.
+                  </li>
+                </ul>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDownloadMasterAssessmentWorkbook}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-md bg-emerald-800 hover:bg-emerald-900 text-white font-medium cursor-pointer shadow-sm text-xs"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+                  <span>Unduh Template Master Guru, Wali Kelas & 31 Indikator (6 Sheet .xlsx)</span>
+                </button>
                 <button
                   type="button"
                   disabled={classStudents.length === 0}
                   onClick={handleDownloadSingleTemplate}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-emerald-800 hover:bg-emerald-900 text-white font-medium disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-medium disabled:opacity-50 cursor-pointer text-xs"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Unduh Template Siswa Terpilih (.xlsx)</span>
+                  <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+                  <span>Unduh Template Per-Siswa Terpilih (4 Sheet .xlsx)</span>
                 </button>
                 <button
                   type="button"
                   disabled={classStudents.length === 0}
                   onClick={handleDownloadAllClassTemplates}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-medium disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-medium disabled:opacity-50 cursor-pointer text-xs"
                 >
-                  <Download className="w-4 h-4" />
+                  <Download className="w-4 h-4 text-slate-500" />
                   <span>Unduh Template Seluruh Siswa Kelas ({classStudents.length} file)</span>
                 </button>
               </div>
@@ -1107,8 +1220,34 @@ export function CoreAssessmentModule({
                 </div>
               )}
 
+              <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded border border-slate-200">
+                <span className="text-slate-600 font-medium">Instrumen Penilaian:</span>
+                {!existingManualAssessment && isEmu && selectableVersions.length > 1 ? (
+                  <select
+                    value={manualInstrumentVersion}
+                    onChange={(e) => setManualInstrumentVersion(e.target.value as InstrumentVersion)}
+                    className="px-2 py-1 bg-white border border-purple-300 text-purple-900 rounded font-semibold text-xs"
+                  >
+                    <option value="v1.0-legacy">v1.0-legacy (Active Production)</option>
+                    <option value="v2.0-canonical">v2.0-canonical (Resmi [S2] - EMULATOR ONLY)</option>
+                  </select>
+                ) : (
+                  <span
+                    className={`px-2 py-0.5 rounded font-semibold text-xs ${
+                      activeFormResolution.version === 'v2.0-canonical'
+                        ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                        : 'bg-slate-200 text-slate-800'
+                    }`}
+                  >
+                    {activeFormResolution.version === 'v2.0-canonical'
+                      ? 'v2.0-canonical (Resmi [S2])'
+                      : 'v1.0-legacy (Production)'}
+                  </span>
+                )}
+              </div>
+
               <div className="border border-slate-200 rounded-md max-h-72 overflow-y-auto divide-y divide-slate-100">
-                {AKHLAK_31_INDICATORS.map((ind) => (
+                {activeFormIndicators.map((ind) => (
                   <div
                     key={ind.code}
                     className="px-3 py-2 flex items-center justify-between gap-4"
@@ -1222,6 +1361,9 @@ export function CoreAssessmentModule({
                       </td>
                       <td className="py-2.5 px-3 text-slate-700">
                         {a.importSource === 'excel' ? 'Excel' : 'Manual'} · {a.verificationStatus}
+                        <span className="block text-[11px] font-mono text-slate-500">
+                          {a.instrumentVersion || 'v1.0-legacy'}
+                        </span>
                       </td>
                       <td className="py-2.5 pl-3 text-right">
                         <button

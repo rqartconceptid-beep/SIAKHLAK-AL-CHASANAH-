@@ -106,11 +106,11 @@ export function DbStatusBadge({
       </div>
     );
   }
-  if (status === 'CHECKING') {
+  if (status === 'CONNECTING' || status === 'CHECKING') {
     return (
       <div className="flex items-center gap-1.5 text-xs text-slate-500 whitespace-nowrap shrink-0">
         <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
-        <span>Memeriksa database...</span>
+        <span>{status === 'CONNECTING' ? 'Menghubungkan ke database...' : 'Memeriksa database...'}</span>
       </div>
     );
   }

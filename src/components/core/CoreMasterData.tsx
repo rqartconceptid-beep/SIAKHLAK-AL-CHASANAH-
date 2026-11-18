@@ -1,16 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
+  AlertTriangle,
   Archive,
   ArrowUpRight,
+  CheckCircle2,
   Download,
   Edit3,
+  FileSpreadsheet,
   Printer,
   RotateCcw,
   Search,
   ShieldCheck,
   Trash2,
+  Upload,
+  X,
 } from 'lucide-react';
+import {
+  downloadStudentParentTemplate,
+  downloadTeacherAssignmentAssessmentTemplate,
+  triggerFileDownload,
+} from '../../utils/excelTemplate';
+import {
+  validateStudentParentWorkbookBuffer,
+  validateTeacherAssignmentWorkbookBuffer,
+  StudentParentImportResult,
+  TeacherAssignmentImportResult,
+} from '../../utils/excelImportEngine';
 import {
   AcademicPeriod,
   AcademicYearDoc,
@@ -177,6 +193,63 @@ export function CoreMasterData({
     label: string;
   } | null>(null);
   const [permDeleteReason, setPermDeleteReason] = useState('');
+
+  // Excel Template & Import State
+  const [importModalType, setImportModalType] = useState<'none' | 'student_parent' | 'teacher_assignment'>('none');
+  const [studentParentImportResult, setStudentParentImportResult] = useState<StudentParentImportResult | null>(null);
+  const [teacherImportResult, setTeacherImportResult] = useState<TeacherAssignmentImportResult | null>(null);
+
+  const handleDownloadStudentParentTemplate = () => {
+    setErrorMsg(null);
+    try {
+      downloadStudentParentTemplate();
+      setSuccessMsg('Template Excel Siswa & Orang Tua (4 Sheet Lengkap) berhasil diunduh.');
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err) {
+      setErrorMsg('Gagal mengunduh template: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleDownloadTeacherAssignmentTemplate = () => {
+    setErrorMsg(null);
+    try {
+      downloadTeacherAssignmentAssessmentTemplate();
+      setSuccessMsg('Template Excel Guru, Wali Kelas & 31 Indikator (6 Sheet Lengkap) berhasil diunduh.');
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err) {
+      setErrorMsg('Gagal mengunduh template: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleStudentParentFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorMsg(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const res = validateStudentParentWorkbookBuffer(buffer, file.name);
+      setStudentParentImportResult(res);
+      setImportModalType('student_parent');
+    } catch (err) {
+      setErrorMsg('Gagal memproses file Excel: ' + (err instanceof Error ? err.message : String(err)));
+    }
+    e.target.value = '';
+  };
+
+  const handleTeacherFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorMsg(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const res = validateTeacherAssignmentWorkbookBuffer(buffer, file.name);
+      setTeacherImportResult(res);
+      setImportModalType('teacher_assignment');
+    } catch (err) {
+      setErrorMsg('Gagal memproses file Excel: ' + (err instanceof Error ? err.message : String(err)));
+    }
+    e.target.value = '';
+  };
 
   // 1. Unit Pendidikan form
   const [uCode, setUCode] = useState<EducationLevel>('TK');
@@ -433,7 +506,9 @@ export function CoreMasterData({
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'DATA_SISWA');
-    XLSX.writeFile(wb, `SIAKHLAK_DATA_SISWA_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    triggerFileDownload(wb, `SIAKHLAK_DATA_SISWA_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    setSuccessMsg('Data peserta didik berhasil diekspor ke file Excel.');
+    setTimeout(() => setSuccessMsg(null), 4000);
   };
 
   const renderLifecycleActions = (
@@ -548,6 +623,320 @@ export function CoreMasterData({
           );
         })}
       </div>
+
+      {/* Template & Import Excel Master Toolbar */}
+      <div className="no-print p-3.5 bg-gradient-to-r from-emerald-900 to-emerald-950 rounded-lg text-white shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-200">
+                Pusat Template &amp; Import Excel SIAKHLAK
+              </h3>
+            </div>
+            <p className="text-[11px] text-emerald-100/80 mt-0.5">
+              Unduh template resmi 31 Indikator &amp; Master Data serta unggah data massal tervalidasi.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadStudentParentTemplate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 border border-emerald-600 rounded-md text-xs font-medium text-white cursor-pointer shadow-xs transition-colors"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Template Siswa &amp; Orang Tua (.xlsx)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadTeacherAssignmentTemplate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 border border-emerald-600 rounded-md text-xs font-medium text-white cursor-pointer shadow-xs transition-colors"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Template Guru &amp; Wali Kelas (.xlsx)</span>
+            </button>
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 rounded-md text-xs font-medium text-white cursor-pointer shadow-xs transition-colors">
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import Data Siswa</span>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={handleStudentParentFileChange}
+              />
+            </label>
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 rounded-md text-xs font-medium text-white cursor-pointer shadow-xs transition-colors">
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import Data Guru</span>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={handleTeacherFileChange}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* Preview Modal / Panel: Student & Parent Import */}
+      {importModalType === 'student_parent' && studentParentImportResult && (
+        <Panel
+          title={`Preview Import Excel: Data Siswa & Orang Tua (${studentParentImportResult.fileName})`}
+          meta={`${studentParentImportResult.totalRows} baris terdeteksi · ${studentParentImportResult.validRows} valid · ${studentParentImportResult.invalidRows} perlu koreksi`}
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                setImportModalType('none');
+                setStudentParentImportResult(null);
+              }}
+              className="p-1 rounded-md hover:bg-slate-100 text-slate-500 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          }
+        >
+          <div className="space-y-3 text-xs">
+            {studentParentImportResult.globalErrors.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-300 rounded-md text-red-800 space-y-1">
+                {studentParentImportResult.globalErrors.map((err, i) => (
+                  <p key={i}>• {err}</p>
+                ))}
+              </div>
+            )}
+
+            {studentParentImportResult.globalWarnings.length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-300 rounded-md text-amber-800 space-y-1">
+                {studentParentImportResult.globalWarnings.map((w, i) => (
+                  <p key={i}>• {w}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="px-2.5 py-1 bg-slate-100 border border-slate-300 rounded-md text-slate-700 font-medium">
+                Total Baris: {studentParentImportResult.totalRows}
+              </span>
+              <span className="px-2.5 py-1 bg-emerald-50 border border-emerald-300 rounded-md text-emerald-800 font-medium">
+                Baris Valid: {studentParentImportResult.validRows}
+              </span>
+              {studentParentImportResult.invalidRows > 0 && (
+                <span className="px-2.5 py-1 bg-red-50 border border-red-300 rounded-md text-red-800 font-medium">
+                  Perlu Koreksi: {studentParentImportResult.invalidRows}
+                </span>
+              )}
+              <span className="px-2.5 py-1 bg-blue-50 border border-blue-300 rounded-md text-blue-800 font-medium">
+                Siswa Unik: {studentParentImportResult.uniqueStudentsCount}
+              </span>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-md">
+              <table className="w-full text-left divide-y divide-slate-200">
+                <thead className="bg-slate-50 sticky top-0 text-[11px] font-semibold text-slate-700">
+                  <tr>
+                    <th className="px-2.5 py-2">Baris</th>
+                    <th className="px-2.5 py-2">NIS</th>
+                    <th className="px-2.5 py-2">Nama Siswa</th>
+                    <th className="px-2.5 py-2">JK</th>
+                    <th className="px-2.5 py-2">Jenjang</th>
+                    <th className="px-2.5 py-2">Kelas</th>
+                    <th className="px-2.5 py-2">Orang Tua / Wali</th>
+                    <th className="px-2.5 py-2">Hubungan</th>
+                    <th className="px-2.5 py-2">Status Validasi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-[11px]">
+                  {studentParentImportResult.rows.map((row) => (
+                    <tr
+                      key={row.rowNumber}
+                      className={row.isValid ? 'hover:bg-slate-50' : 'bg-red-50/50'}
+                    >
+                      <td className="px-2.5 py-2 font-mono text-slate-500">{row.rowNumber}</td>
+                      <td className="px-2.5 py-2 font-mono font-medium">{row.nis}</td>
+                      <td className="px-2.5 py-2">{row.namaSiswa}</td>
+                      <td className="px-2.5 py-2">{row.jenisKelamin}</td>
+                      <td className="px-2.5 py-2 font-semibold">{row.jenjang}</td>
+                      <td className="px-2.5 py-2">{row.kodeKelas || '-'}</td>
+                      <td className="px-2.5 py-2">{row.namaOrangTua}</td>
+                      <td className="px-2.5 py-2 capitalize">{row.hubungan}</td>
+                      <td className="px-2.5 py-2">
+                        {row.isValid ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Valid</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-red-700 font-medium">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span>{row.errors.join('; ')}</span>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-slate-500 text-[11px]">
+                Import Master Data Siswa &amp; Orang Tua menjaga integritas data tanpa menimpa data historis.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportModalType('none');
+                    setStudentParentImportResult(null);
+                  }}
+                  className="px-3 py-1.5 border border-slate-300 rounded-md bg-white hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  Tutup Preview
+                </button>
+                <button
+                  type="button"
+                  disabled={studentParentImportResult.validRows === 0}
+                  onClick={() => {
+                    setSuccessMsg(
+                      `Pratinjau validasi ${studentParentImportResult.validRows} data siswa & orang tua berhasil diverifikasi. Mode pengujian lokal aktif tanpa penulisan ke database produksi.`
+                    );
+                    setImportModalType('none');
+                    setTimeout(() => setSuccessMsg(null), 6000);
+                  }}
+                  className="px-4 py-1.5 rounded-md bg-emerald-800 hover:bg-emerald-900 text-white font-medium disabled:opacity-50 cursor-pointer"
+                >
+                  Verifikasi &amp; Simpan ({studentParentImportResult.validRows} Data)
+                </button>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {/* Preview Modal / Panel: Teacher & Assignment Import */}
+      {importModalType === 'teacher_assignment' && teacherImportResult && (
+        <Panel
+          title={`Preview Import Excel: Data Guru & Penugasan (${teacherImportResult.fileName})`}
+          meta={`${teacherImportResult.totalRows} baris terdeteksi · ${teacherImportResult.validRows} valid · ${teacherImportResult.invalidRows} perlu koreksi`}
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                setImportModalType('none');
+                setTeacherImportResult(null);
+              }}
+              className="p-1 rounded-md hover:bg-slate-100 text-slate-500 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          }
+        >
+          <div className="space-y-3 text-xs">
+            {teacherImportResult.globalErrors.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-300 rounded-md text-red-800 space-y-1">
+                {teacherImportResult.globalErrors.map((err, i) => (
+                  <p key={i}>• {err}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="px-2.5 py-1 bg-slate-100 border border-slate-300 rounded-md text-slate-700 font-medium">
+                Total Baris: {teacherImportResult.totalRows}
+              </span>
+              <span className="px-2.5 py-1 bg-emerald-50 border border-emerald-300 rounded-md text-emerald-800 font-medium">
+                Baris Valid: {teacherImportResult.validRows}
+              </span>
+              {teacherImportResult.invalidRows > 0 && (
+                <span className="px-2.5 py-1 bg-red-50 border border-red-300 rounded-md text-red-800 font-medium">
+                  Perlu Koreksi: {teacherImportResult.invalidRows}
+                </span>
+              )}
+            </div>
+
+            <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-md">
+              <table className="w-full text-left divide-y divide-slate-200">
+                <thead className="bg-slate-50 sticky top-0 text-[11px] font-semibold text-slate-700">
+                  <tr>
+                    <th className="px-2.5 py-2">Baris</th>
+                    <th className="px-2.5 py-2">Kode</th>
+                    <th className="px-2.5 py-2">Nama Guru</th>
+                    <th className="px-2.5 py-2">Email</th>
+                    <th className="px-2.5 py-2">Jenjang</th>
+                    <th className="px-2.5 py-2">Kelas</th>
+                    <th className="px-2.5 py-2">Penugasan</th>
+                    <th className="px-2.5 py-2">Mata Pelajaran</th>
+                    <th className="px-2.5 py-2">Status Validasi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-[11px]">
+                  {teacherImportResult.rows.map((row) => (
+                    <tr
+                      key={row.rowNumber}
+                      className={row.isValid ? 'hover:bg-slate-50' : 'bg-red-50/50'}
+                    >
+                      <td className="px-2.5 py-2 font-mono text-slate-500">{row.rowNumber}</td>
+                      <td className="px-2.5 py-2 font-mono font-medium">{row.kodeGuru || '-'}</td>
+                      <td className="px-2.5 py-2">{row.namaGuru}</td>
+                      <td className="px-2.5 py-2 font-mono">{row.emailGuru}</td>
+                      <td className="px-2.5 py-2 font-semibold">{row.jenjang}</td>
+                      <td className="px-2.5 py-2">{row.kodeKelas || '-'}</td>
+                      <td className="px-2.5 py-2 font-medium">{row.jenisPenugasan}</td>
+                      <td className="px-2.5 py-2">{row.mataPelajaran || '-'}</td>
+                      <td className="px-2.5 py-2">
+                        {row.isValid ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Valid</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-red-700 font-medium">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span>{row.errors.join('; ')}</span>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-slate-500 text-[11px]">
+                Validasi penugasan guru menjamin kesesuaian jenjang pendidikan dan peran wali kelas.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportModalType('none');
+                    setTeacherImportResult(null);
+                  }}
+                  className="px-3 py-1.5 border border-slate-300 rounded-md bg-white hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  Tutup Preview
+                </button>
+                <button
+                  type="button"
+                  disabled={teacherImportResult.validRows === 0}
+                  onClick={() => {
+                    setSuccessMsg(
+                      `Pratinjau validasi ${teacherImportResult.validRows} data guru & penugasan berhasil diverifikasi. Mode pengujian lokal aktif tanpa penulisan ke database produksi.`
+                    );
+                    setImportModalType('none');
+                    setTimeout(() => setSuccessMsg(null), 6000);
+                  }}
+                  className="px-4 py-1.5 rounded-md bg-emerald-800 hover:bg-emerald-900 text-white font-medium disabled:opacity-50 cursor-pointer"
+                >
+                  Verifikasi &amp; Simpan ({teacherImportResult.validRows} Data)
+                </button>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      )}
 
       {errorMsg && (
         <div className="p-3 border border-red-300 bg-red-50 rounded-md text-xs text-red-800">
@@ -1976,15 +2365,35 @@ export function CoreMasterData({
             title="Direktori Peserta Didik"
             meta={`${filteredStudents.length} dari ${students.length} siswa`}
             action={
-              <button
-                type="button"
-                onClick={handleExportStudentsXlsx}
-                disabled={filteredStudents.length === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 disabled:opacity-50 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Ekspor Excel</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadStudentParentTemplate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-xs font-medium text-emerald-800 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Unduh Template Siswa (.xlsx)</span>
+                </button>
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-500 bg-amber-50 hover:bg-amber-100 text-xs font-medium text-amber-800 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Import Excel</span>
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={handleStudentParentFileChange}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleExportStudentsXlsx}
+                  disabled={filteredStudents.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 disabled:opacity-50 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Ekspor Excel</span>
+                </button>
+              </div>
             }
           >
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-4 text-xs">
@@ -2412,18 +2821,38 @@ export function CoreMasterData({
           <Panel
             title="Daftar Guru Terdaftar"
             action={
-              <select
-                value={tFilterLevel}
-                onChange={(e) => setTFilterLevel(e.target.value)}
-                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
-              >
-                <option value="ALL">Semua Jenjang</option>
-                {EDUCATION_LEVELS.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadTeacherAssignmentTemplate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-xs font-medium text-emerald-800 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Unduh Template (.xlsx)</span>
+                </button>
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-500 bg-amber-50 hover:bg-amber-100 text-xs font-medium text-amber-800 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Import Excel</span>
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={handleTeacherFileChange}
+                  />
+                </label>
+                <select
+                  value={tFilterLevel}
+                  onChange={(e) => setTFilterLevel(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
+                >
+                  <option value="ALL">Semua Jenjang</option>
+                  {EDUCATION_LEVELS.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
             }
           >
             {teachers.filter((t) => matchesEducationLevel(t.unitCode, tFilterLevel)).length === 0 ? (

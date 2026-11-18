@@ -4,6 +4,9 @@ import path from 'node:path';
 import * as XLSX from 'xlsx';
 import {
   AKHLAK_31_INDICATORS,
+  LEGACY_31_INDICATORS,
+  CANONICAL_31_INDICATORS,
+  INSTRUMENT_DEFINITIONS,
   AcademicPeriod,
   AcademicYearDoc,
   CanonicalRole,
@@ -26,10 +29,16 @@ import {
 } from '../src/types/siakhlak';
 import {
   buildAssessmentWorkbook,
+  buildStudentParentTemplateWorkbook,
+  buildTeacherAssignmentAssessmentWorkbook,
   buildTemplateFilename,
   IDENTITAS_HEADERS,
   PENILAIAN_HEADERS,
   REFERENSI_HEADERS,
+  STUDENT_PARENT_HEADERS,
+  TEACHER_ASSIGNMENT_HEADERS,
+  BATCH_PENILAIAN_HEADERS,
+  REKAP_PENILAIAN_HEADERS,
   TEMPLATE_VERSION,
 } from '../src/utils/excelTemplate';
 import {
@@ -39,6 +48,9 @@ import {
   ParsedAssessmentPreview,
   validateAssessmentRevisionInput,
   validateWorkbookBuffer,
+  validateStudentParentWorkbookBuffer,
+  validateTeacherAssignmentWorkbookBuffer,
+  validateBatchAssessmentWorkbookBuffer,
 } from '../src/utils/excelImportEngine';
 import {
   checkPortalAccess,
@@ -165,7 +177,14 @@ function makeFilledWorkbook(
   });
   const row: unknown[] = [student.nis];
   for (const ind of AKHLAK_31_INDICATORS) {
-    row.push(ind.excelCode in scoresMap ? scoresMap[ind.excelCode] : '');
+    const pShort = `P${ind.number}`;
+    const val =
+      ind.excelCode in scoresMap
+        ? scoresMap[ind.excelCode]
+        : pShort in scoresMap
+        ? scoresMap[pShort]
+        : '';
+    row.push(val);
   }
   row.push(teacherNotes);
   const ws = XLSX.utils.aoa_to_sheet([[...PENILAIAN_HEADERS], row]);
@@ -173,9 +192,23 @@ function makeFilledWorkbook(
   return wb;
 }
 
-function runTest(name: string, fn: () => void) {
+const asyncTests: Promise<void>[] = [];
+function runTest(name: string, fn: () => void | Promise<void>) {
   try {
-    fn();
+    const res = fn();
+    if (res instanceof Promise) {
+      const p = res
+        .then(() => {
+          console.log(`PASS: ${name}`);
+        })
+        .catch((err) => {
+          console.error(`FAIL: ${name}`);
+          console.error(err);
+          process.exitCode = 1;
+        });
+      asyncTests.push(p);
+      return p;
+    }
     console.log(`PASS: ${name}`);
   } catch (err) {
     console.error(`FAIL: ${name}`);
@@ -215,9 +248,11 @@ runTest('J01–J05: Empat portal login terpisah & routing ke 6 role resmi', () =
   assert.equal(checkPortalAccess('COMMITTEE_ADMIN', 'committee').allowed, true);
   assert.equal(routePathForMenu('komite_dashboard', 'COMMITTEE_ADMIN'), '/committee/dashboard');
 
-  // Portal 4: FOUNDATION_ADMIN
+  // Portal 4: FOUNDATION_ADMIN & SUPER_ADMIN
   assert.equal(checkPortalAccess('FOUNDATION_ADMIN', 'foundation').allowed, true);
+  assert.equal(checkPortalAccess('SUPER_ADMIN', 'foundation').allowed, true);
   assert.equal(routePathForMenu('core_dashboard', 'FOUNDATION_ADMIN'), '/foundation/dashboard');
+  assert.equal(routePathForMenu('core_dashboard', 'SUPER_ADMIN'), '/foundation/dashboard');
 });
 
 runTest('J06–J09: Cross-portal login rejection (tanpa auto-ubah role)', () => {
@@ -232,6 +267,11 @@ runTest('J06–J09: Cross-portal login rejection (tanpa auto-ubah role)', () => 
 
   assert.equal(checkPortalAccess('PARENT', 'foundation').allowed, false);
   assert.equal(checkPortalAccess('PARENT', 'foundation').officialPortal, 'parent_student');
+
+  assert.equal(checkPortalAccess('SUPER_ADMIN', 'parent_student').allowed, false);
+  assert.equal(checkPortalAccess('SUPER_ADMIN', 'teacher').allowed, false);
+  assert.equal(checkPortalAccess('SUPER_ADMIN', 'committee').allowed, false);
+  assert.equal(checkPortalAccess('SUPER_ADMIN', 'foundation').allowed, true);
 });
 
 runTest('J10: Inactive / suspended / pending / archived lifecycle normalization & organization check', () => {
@@ -243,7 +283,7 @@ runTest('J10: Inactive / suspended / pending / archived lifecycle normalization 
     account_status: 'suspended',
     organization_id: DEFAULT_ORGANIZATION_ID,
   });
-  assert.equal(suspendedUser.account_status, 'INACTIVE');
+  assert.equal(suspendedUser.account_status, 'SUSPENDED');
   assert.equal(isAccountActive(suspendedUser.account_status), false);
   assert.equal(suspendedUser.role, 'TEACHER');
 
@@ -1655,6 +1695,306 @@ runTest('AUTH-CORRECTION-04: Portal UI & App security invariants (4 Email/Passwo
   assert.ok(assessSrc.includes('if (explicitClassIds.size === 0) return []'));
   assert.ok(progSrc.includes('if (authorizedTeacherClassIds.size === 0) return []'));
 });
+
+runTest('EXCEL-MASTER-01: Template 1 (Siswa & Orang Tua) & Template 2 (Guru, Wali Kelas & 31 Indikator)', () => {
+  // Test Template 1: DATA SISWA DAN ORANG TUA
+  const wb1 = buildStudentParentTemplateWorkbook();
+  assert.deepEqual(wb1.SheetNames, [
+    'PETUNJUK',
+    'DATA_SISWA_ORANG_TUA',
+    'REFERENSI',
+    'MASTER_31_INDIKATOR',
+  ]);
+
+  const sheet1Data = XLSX.utils.sheet_to_json<string[]>(wb1.Sheets['DATA_SISWA_ORANG_TUA'], { header: 1 });
+  const headers1 = sheet1Data[0];
+  assert.deepEqual(headers1, [...STUDENT_PARENT_HEADERS]);
+  assert.equal(headers1.length, 16);
+  assert.equal(headers1[0], 'NIS');
+  assert.equal(headers1[1], 'NAMA_SISWA');
+  assert.equal(headers1[15], 'ALAMAT');
+
+  // Check 31 Indicators sheet in Template 1
+  const sheet1Ind = XLSX.utils.sheet_to_json<string[]>(wb1.Sheets['MASTER_31_INDIKATOR'], { header: 1 });
+  assert.equal(sheet1Ind.length, 32); // Header + 31 rows
+  assert.equal(sheet1Ind[1][0], 'P01');
+  assert.equal(sheet1Ind[31][0], 'P31');
+
+  // Test Template 2: DATA GURU, WALI KELAS, & PENILAIAN 31 INDIKATOR
+  const wb2 = buildTeacherAssignmentAssessmentWorkbook([STUDENT_1, STUDENT_2], TEST_CLASS, TEST_PERIOD);
+  assert.deepEqual(wb2.SheetNames, [
+    'PETUNJUK',
+    'DATA_GURU_WALI_KELAS',
+    'REFERENSI',
+    'MASTER_31_INDIKATOR',
+    'PENILAIAN_31_INDIKATOR',
+    'REKAP_PENILAIAN',
+  ]);
+
+  const sheet2Guru = XLSX.utils.sheet_to_json<string[]>(wb2.Sheets['DATA_GURU_WALI_KELAS'], { header: 1 });
+  assert.deepEqual(sheet2Guru[0], [...TEACHER_ASSIGNMENT_HEADERS]);
+
+  const sheet2Penilaian = XLSX.utils.sheet_to_json<string[]>(wb2.Sheets['PENILAIAN_31_INDIKATOR'], { header: 1 });
+  assert.deepEqual(sheet2Penilaian[0], [...BATCH_PENILAIAN_HEADERS]);
+
+  // Verify that all score cells for prefilled students are EMPTY/NULL (NO default 4!)
+  const rowStudent1 = sheet2Penilaian[1];
+  assert.equal(rowStudent1[0], STUDENT_1.nis);
+  // Indices 10 to 40 correspond to P01..P31
+  for (let c = 10; c <= 40; c++) {
+    assert.equal(rowStudent1[c], '', `Indikator kolom ke-${c} harus kosong tanpa nilai default 4`);
+  }
+
+  // Check Sheet 6: REKAP_PENILAIAN formulas
+  const wsRekap = wb2.Sheets['REKAP_PENILAIAN'];
+  assert.ok(wsRekap['F2'], 'Cell F2 (INDIKATOR_DINILAI) harus ada');
+  assert.equal(wsRekap['F2'].f, 'COUNT(PENILAIAN_31_INDIKATOR!K2:AO2)');
+  assert.equal(wsRekap['G2'].f, '31-COUNT(PENILAIAN_31_INDIKATOR!K2:AO2)');
+  assert.equal(wsRekap['H2'].f, 'SUM(PENILAIAN_31_INDIKATOR!K2:AO2)');
+  assert.ok(wsRekap['I2'].f?.includes('AVERAGE(PENILAIAN_31_INDIKATOR!K2:AO2)'));
+  assert.ok(wsRekap['J2'].f?.includes('"LENGKAP"'));
+  assert.ok(wsRekap['K2'].f?.includes('"MENUNGGU KEBIJAKAN PREDIKAT YAYASAN"'));
+  assert.ok(!wsRekap['K2'].f?.includes('"SB"'), 'Formula tidak boleh menggunakan predikat SB/B/C/K yang belum disahkan');
+});
+
+runTest('EXCEL-MASTER-02: Validasi Import Siswa, Orang Tua, Guru & Penilaian 31 Indikator', () => {
+  // Test Student/Parent parser & validator
+  const validWb = buildStudentParentTemplateWorkbook();
+  const validBuf = XLSX.write(validWb, { bookType: 'xlsx', type: 'array' });
+  const resStudent = validateStudentParentWorkbookBuffer(validBuf, 'test_siswa.xlsx');
+  // Sample rows with [CONTOH] and empty rows are skipped
+  assert.equal(resStudent.globalErrors.length, 0);
+
+  // Test with invalid data: same student and parent email
+  const badWb = XLSX.utils.book_new();
+  const badRows = [
+    [...STUDENT_PARENT_HEADERS],
+    [
+      '20269999',
+      'Test Siswa',
+      'L',
+      'Jakarta',
+      '2012-01-01',
+      'SMP',
+      'SMP Al-Chasanah',
+      '2025/2026',
+      '7A',
+      'ACTIVE',
+      'same@test.com',
+      'Orang Tua',
+      'ayah',
+      'same@test.com', // SAME EMAIL!
+      '08123',
+      'Alamat',
+    ],
+  ];
+  XLSX.utils.book_append_sheet(badWb, XLSX.utils.aoa_to_sheet(badRows), 'DATA_SISWA_ORANG_TUA');
+  const badBuf = XLSX.write(badWb, { bookType: 'xlsx', type: 'array' });
+  const resBadStudent = validateStudentParentWorkbookBuffer(badBuf, 'bad_siswa.xlsx');
+  assert.equal(resBadStudent.invalidRows, 1);
+  assert.ok(
+    resBadStudent.rows[0].errors.some((e) => e.includes('Email Siswa dan Email Orang Tua tidak boleh sama'))
+  );
+
+  // Test Batch Assessment Validator
+  const batchWb = buildTeacherAssignmentAssessmentWorkbook([STUDENT_1], TEST_CLASS, TEST_PERIOD);
+  // Fill partial scores for STUDENT_1 in PENILAIAN_31_INDIKATOR
+  const ws = batchWb.Sheets['PENILAIAN_31_INDIKATOR'];
+  // Set cell K2 (P01) to 4, L2 (P02) to 3
+  XLSX.utils.sheet_add_aoa(ws, [[4, 3]], { origin: 'K2' });
+  const batchBuf = XLSX.write(batchWb, { bookType: 'xlsx', type: 'array' });
+
+  const ctx: ImportValidationContext = {
+    selectedClass: TEST_CLASS,
+    selectedPeriod: TEST_PERIOD,
+    allStudents: ALL_STUDENTS,
+    existingAssessments: [],
+    batchSeenKeys: new Set(),
+  };
+
+  const batchPreviews = validateBatchAssessmentWorkbookBuffer(batchBuf, 'batch.xlsx', ctx);
+  assert.equal(batchPreviews.length, 1);
+  assert.equal(batchPreviews[0].identitas?.nis, STUDENT_1.nis);
+  assert.equal(batchPreviews[0].scores['P01'], 4);
+  assert.equal(batchPreviews[0].scores['P02'], 3);
+  assert.equal(batchPreviews[0].scores['P03'], null);
+  assert.equal(batchPreviews[0].filledCount, 2);
+  assert.equal(batchPreviews[0].emptyCount, 29);
+  assert.equal(batchPreviews[0].status, 'VALID');
+});
+
+runTest('EMULATOR-SAFETY-01: Hard Production Safety Gate & Emulator Isolation Invariants', async () => {
+  const {
+    EMULATOR_CONFIG,
+    getEmulatorConfig,
+    checkEmulatorHealth,
+    assertEmulatorActive,
+  } = await import('../src/lib/firebase');
+
+  // 1. Invariants of Emulator Configuration
+  const cfg = getEmulatorConfig();
+  assert.equal(cfg.authHost, '127.0.0.1');
+  assert.equal(cfg.authPort, 9099);
+  assert.equal(cfg.authUrl, 'http://127.0.0.1:9099');
+  assert.equal(cfg.firestoreHost, '127.0.0.1');
+  assert.equal(cfg.firestorePort, 8080);
+  assert.equal(cfg.firestoreUrl, 'http://127.0.0.1:8080');
+  assert.equal(cfg.uiUrl, 'http://127.0.0.1:4000');
+
+  // 2. Connectivity probe against active local emulators
+  const health = await checkEmulatorHealth();
+  assert.equal(health.auth, true, 'Auth emulator at 127.0.0.1:9099 must be responsive');
+  assert.equal(health.firestore, true, 'Firestore emulator at 127.0.0.1:8080 must be responsive');
+  assert.equal(health.ok, true, 'Both emulators must be healthy');
+  assert.equal(health.error, undefined);
+
+  // 3. assertEmulatorActive does not throw when running
+  await assertEmulatorActive();
+
+  // 4. Hard Safety Gate fail-fast check: Reject startup when emulator endpoints fail
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      throw new Error('Connection refused: ECONNREFUSED');
+    }) as any;
+
+    const offlineHealth = await checkEmulatorHealth();
+    assert.equal(offlineHealth.ok, false);
+    assert.equal(offlineHealth.auth, false);
+    assert.equal(offlineHealth.firestore, false);
+    assert.ok(
+      offlineHealth.error?.includes('HARD PRODUCTION SAFETY GATE') &&
+        offlineHealth.error?.includes('DIBLOKIR SECARA KETAT'),
+      'Safety Gate error message must strictly block fallback to Firebase Production'
+    );
+
+    // assertEmulatorActive must throw the safety gate violation
+    let threw = false;
+    try {
+      await assertEmulatorActive();
+    } catch (err: any) {
+      threw = true;
+      assert.ok(err.message.includes('HARD PRODUCTION SAFETY GATE'));
+      assert.ok(err.message.includes('DIBLOKIR SECARA KETAT'));
+    }
+    assert.equal(threw, true, 'Startup MUST fail when emulators are offline');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  // 5. Source code audits: no hidden production fallback in src/lib/firebase.ts
+  const fbSource = fs.readFileSync(path.resolve(process.cwd(), 'src/lib/firebase.ts'), 'utf8');
+  assert.ok(fbSource.includes('connectAuthEmulator'), 'connectAuthEmulator must be used');
+  assert.ok(fbSource.includes('connectFirestoreEmulator'), 'connectFirestoreEmulator must be used');
+  assert.ok(fbSource.includes('127.0.0.1'), '127.0.0.1 loopback binding must be enforced');
+  assert.ok(fbSource.includes('9099'), 'Auth port 9099 must be configured');
+  assert.ok(fbSource.includes('8080'), 'Firestore port 8080 must be configured');
+  assert.ok(!fbSource.includes('fallbackToProduction'), 'No production fallback allowed');
+});
+
+runTest('CANONICAL-31-LOCK: Mengunci jumlah tepat 31 indikator, kode P01–P31, urutan, pembagian ranah, dan sentralisasi modul', () => {
+  // 1. Tepat 31 Indikator
+  assert.equal(AKHLAK_31_INDICATORS.length, 31, 'Jumlah indikator AKHLAK_31_INDICATORS harus tepat 31');
+
+  // 2. Kode P01-P31 dan nomor 1-31 berurutan
+  AKHLAK_31_INDICATORS.forEach((ind, index) => {
+    const expectedNum = index + 1;
+    const expectedCode = `P${String(expectedNum).padStart(2, '0')}`;
+    assert.equal(ind.number, expectedNum, `Indikator ke-${index} harus bernomor ${expectedNum}`);
+    assert.equal(ind.excelCode, expectedCode, `Indikator ${expectedNum} harus berkode ${expectedCode}`);
+    assert.ok(ind.title && ind.title.trim().length > 5, `Indikator ${expectedCode} judul tidak boleh kosong`);
+    assert.ok(ind.description && ind.description.trim().length > 10, `Indikator ${expectedCode} deskripsi tidak boleh kosong`);
+  });
+
+  // 3. Distribusi Ranah (5 Ranah Resmi)
+  const domainA = AKHLAK_31_INDICATORS.filter((i) => i.domain === 'Akidah & Ibadah');
+  const domainB = AKHLAK_31_INDICATORS.filter((i) => i.domain === 'Dzikir & Adab Ibadah');
+  const domainC = AKHLAK_31_INDICATORS.filter((i) => i.domain === 'Adab Relasional');
+  const domainD = AKHLAK_31_INDICATORS.filter((i) => i.domain === 'Integritas Pribadi');
+  const domainE = AKHLAK_31_INDICATORS.filter((i) => i.domain === 'Disiplin & Kepedulian');
+
+  assert.equal(domainA.length, 7, 'Ranah A (Akidah & Ibadah) harus berisi tepat 7 indikator (P01-P07)');
+  assert.equal(domainB.length, 5, 'Ranah B (Dzikir & Adab Ibadah) harus berisi tepat 5 indikator (P08-P12)');
+  assert.equal(domainC.length, 6, 'Ranah C (Adab Relasional) harus berisi tepat 6 indikator (P13-P18)');
+  assert.equal(domainD.length, 7, 'Ranah D (Integritas Pribadi) harus berisi tepat 7 indikator (P19-P25)');
+  assert.equal(domainE.length, 6, 'Ranah E (Disiplin & Kepedulian) harus berisi tepat 6 indikator (P26-P31)');
+  assert.equal(domainA.length + domainB.length + domainC.length + domainD.length + domainE.length, 31);
+
+  // 4. P25 & P27 terpisah secara tegas
+  const p25 = AKHLAK_31_INDICATORS.find((i) => i.excelCode === 'P25');
+  const p27 = AKHLAK_31_INDICATORS.find((i) => i.excelCode === 'P27');
+  assert.ok(p25, 'P25 harus terdaftar');
+  assert.ok(p27, 'P27 harus terdaftar');
+  assert.equal(p25?.domain, 'Integritas Pribadi');
+  assert.equal(p27?.domain, 'Disiplin & Kepedulian');
+  assert.notEqual(p25?.title, p27?.title, 'P25 dan P27 tidak boleh memiliki judul yang sama');
+
+  // 5. Sentralisasi: excelTemplate headers menggunakan kode yang identik 100%
+  const templateCodes = PENILAIAN_HEADERS.slice(1, 1 + 31);
+  const masterCodes = AKHLAK_31_INDICATORS.map((i) => i.excelCode);
+  assert.deepEqual(templateCodes, masterCodes, 'Headers template Excel penilaian harus identik dengan master AKHLAK_31_INDICATORS');
+});
+
+runTest('DUAL-MASTER-01: Verifikasi Dual-Master (Legacy v1.0 & Canonical v2.0) & Imutabilitas', () => {
+  // 1. Exactly 31 legacy indicators & 31 canonical indicators
+  assert.equal(LEGACY_31_INDICATORS.length, 31, 'Legacy indicators must be exactly 31');
+  assert.equal(CANONICAL_31_INDICATORS.length, 31, 'Canonical indicators must be exactly 31');
+  assert.equal(AKHLAK_31_INDICATORS, LEGACY_31_INDICATORS, 'AKHLAK_31_INDICATORS must alias LEGACY_31_INDICATORS for 100% backward compatibility');
+
+  // 2. Full P01-P31 sequential codes without duplicates
+  const expectedCodes = Array.from({ length: 31 }, (_, i) => `P${String(i + 1).padStart(2, '0')}`);
+  assert.deepEqual(LEGACY_31_INDICATORS.map((i) => i.excelCode), expectedCodes, 'Legacy codes P01-P31');
+  assert.deepEqual(CANONICAL_31_INDICATORS.map((i) => i.excelCode), expectedCodes, 'Canonical codes P01-P31');
+
+  // 3. Domain separation
+  // Legacy: 5 thematic domains (7, 5, 6, 7, 6)
+  assert.equal(LEGACY_31_INDICATORS.filter((i) => i.domain === 'Akidah & Ibadah').length, 7);
+  assert.equal(LEGACY_31_INDICATORS.filter((i) => i.domain === 'Dzikir & Adab Ibadah').length, 5);
+  assert.equal(LEGACY_31_INDICATORS.filter((i) => i.domain === 'Adab Relasional').length, 6);
+  assert.equal(LEGACY_31_INDICATORS.filter((i) => i.domain === 'Integritas Pribadi').length, 7);
+  assert.equal(LEGACY_31_INDICATORS.filter((i) => i.domain === 'Disiplin & Kepedulian').length, 6);
+
+  // Canonical: 5 Al-Chasanah relational domains (6, 2, 7, 6, 10) from [S2]
+  assert.equal(CANONICAL_31_INDICATORS.filter((i) => i.domain === 'Akhlak kepada Allah SWT').length, 6);
+  assert.equal(CANONICAL_31_INDICATORS.filter((i) => i.domain === 'Akhlak terhadap Rasul').length, 2);
+  assert.equal(CANONICAL_31_INDICATORS.filter((i) => i.domain === 'Akhlak terhadap Orang Tua').length, 7);
+  assert.equal(CANONICAL_31_INDICATORS.filter((i) => i.domain === 'Akhlak terhadap Guru').length, 6);
+  assert.equal(CANONICAL_31_INDICATORS.filter((i) => i.domain === 'Akhlak terhadap Sesama Teman').length, 10);
+
+  // 4. Verification of exact canonical wording from primary source [S2]
+  const p01Can = CANONICAL_31_INDICATORS[0];
+  assert.equal(p01Can.title, 'Melaksanakan ibadah shalat (shalat dhuha dan shalat zuhur berjamaah)');
+  assert.equal(p01Can.description, 'Melaksanakan ibadah shalat (shalat dhuha dan shalat zuhur berjamaah)');
+
+  const p03Can = CANONICAL_31_INDICATORS[2];
+  assert.equal(p03Can.title, "Mengikuti kegiatan tahfiz, membaca surah Yasin, dan sholawat Imrithi (khusus hari Jum'at)");
+
+  const p25Can = CANONICAL_31_INDICATORS[24];
+  const p27Can = CANONICAL_31_INDICATORS[26];
+  assert.equal(p25Can.title, 'Saling memaafkan jika ada teman yang berbuat salah');
+  assert.equal(p27Can.title, 'Bersikap pemaaf terhadap sesama');
+  assert.notEqual(p25Can.title, p27Can.title, 'P25 and P27 must remain distinct');
+
+  // 5. Metadata verification & lifecycle separation
+  const v1Meta = INSTRUMENT_DEFINITIONS['v1.0-legacy'];
+  assert.equal(v1Meta.version, 'v1.0-legacy');
+  assert.equal(v1Meta.instrumentStatus, 'ACTIVE_PRODUCTION');
+  assert.equal(v1Meta.approvalStatus, 'OPERATIONAL_LEGACY');
+  assert.equal(v1Meta.effectiveDate, null);
+  assert.equal(v1Meta.indicators.length, 31);
+
+  const v2Meta = INSTRUMENT_DEFINITIONS['v2.0-canonical'];
+  assert.equal(v2Meta.version, 'v2.0-canonical');
+  assert.equal(v2Meta.instrumentStatus, 'EMULATOR_TESTING_ONLY');
+  assert.equal(v2Meta.approvalStatus, 'PENDING_FOUNDATION_DECREE');
+  assert.equal(v2Meta.effectiveDate, null);
+  assert.equal(v2Meta.indicators.length, 31);
+});
+
+await Promise.all(asyncTests);
+
+
+
 
 
 

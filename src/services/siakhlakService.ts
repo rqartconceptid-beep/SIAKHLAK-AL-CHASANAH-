@@ -19,7 +19,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { User } from 'firebase/auth';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, isEmulatorMode, OperationType } from '../lib/firebase';
 import {
   AcademicPeriod,
   AcademicYearDoc,
@@ -39,6 +39,7 @@ import {
   FollowUpStatus,
   FoundationAdminProfile,
   GuardianProfile,
+  InstrumentVersion,
   isAccountActive,
   LifecycleStatus,
   LoginPortal,
@@ -69,6 +70,7 @@ import {
   VerificationStatus,
 } from '../types/siakhlak';
 import { ParsedAssessmentPreview } from '../utils/excelImportEngine';
+import { assertPermittedCreationVersion } from '../utils/instrumentResolver';
 
 export function formatFirebaseAuthError(err: unknown): string {
   const code =
@@ -2913,6 +2915,7 @@ export async function saveStudentAssessment(
     teacherIdentifier?: string;
     importSource?: 'manual' | 'excel';
     revisionReason?: string;
+    instrumentVersion?: InstrumentVersion;
   },
   existingId?: string
 ): Promise<void> {
@@ -2953,8 +2956,11 @@ export async function saveStudentAssessment(
     if (existingId) {
       await updateDoc(doc(db, 'studentAssessments', existingId), payload);
     } else {
+      const targetVersion: InstrumentVersion = data.instrumentVersion || 'v1.0-legacy';
+      assertPermittedCreationVersion(targetVersion);
       await addDoc(collection(db, 'studentAssessments'), {
         ...payload,
+        instrumentVersion: targetVersion,
         createdBy: uid,
         createdAt: serverTimestamp(),
       });
@@ -3080,8 +3086,14 @@ export async function commitExcelAssessmentImport(params: {
       if (item.existingAssessmentId) {
         batch.update(docRef, basePayload);
       } else {
+        const itemVersion: InstrumentVersion = item.instrumentVersion || 'v1.0-legacy';
+        assertPermittedCreationVersion(itemVersion);
+        const targetVersion: InstrumentVersion = isEmulatorMode()
+          ? itemVersion
+          : 'v1.0-legacy';
         batch.set(docRef, {
           ...basePayload,
+          instrumentVersion: targetVersion,
           createdBy: uid,
           createdAt: serverTimestamp(),
         });
@@ -3117,6 +3129,7 @@ export async function commitExcelAssessmentImport(params: {
               teacherNotes: item.teacherNotes,
               teacherIdentifier: item.identitas?.teacherIdentifier || profile.email,
               importSource: 'excel',
+              instrumentVersion: item.instrumentVersion || 'v1.0-legacy',
               revisionReason: item.revisionReason || undefined,
             },
             item.existingAssessmentId || undefined

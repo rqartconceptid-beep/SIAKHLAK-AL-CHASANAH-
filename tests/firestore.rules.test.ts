@@ -20,7 +20,10 @@ import {
 } from 'firebase/firestore';
 
 async function main() {
-  const rules = fs.readFileSync(path.resolve(process.cwd(), 'firestore.rules'), 'utf8');
+  const emulatorRulesPath = path.resolve(process.cwd(), 'firestore.emulator.rules');
+  const rules = fs.existsSync(emulatorRulesPath)
+    ? fs.readFileSync(emulatorRulesPath, 'utf8')
+    : fs.readFileSync(path.resolve(process.cwd(), 'firestore.rules'), 'utf8');
   const testEnv: RulesTestEnvironment = await initializeTestEnvironment({
     projectId: 'siakhlak-rules-test',
     firestore: {
@@ -31,8 +34,20 @@ async function main() {
   });
 
   try {
+    await testEnv.clearFirestore();
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       const db = ctx.firestore();
+      await setDoc(doc(db, 'users', 'uid_superadmin'), {
+        uid: 'uid_superadmin',
+        email: 'superadmin@siakhlak.test',
+        full_name: 'Super Administrator',
+        roles: ['SUPER_ADMIN', 'FOUNDATION_ADMIN'],
+        role: 'SUPER_ADMIN',
+        account_status: 'ACTIVE',
+        organization_id: 'yayasan_siakhlak',
+        assignedUnits: ['TK', 'SD', 'SMP', 'SMA', 'SMK'],
+        allowIndividualStudentAccess: true,
+      });
       await setDoc(doc(db, 'users', 'uid_foundation'), {
         uid: 'uid_foundation',
         email: 'foundation@siakhlak.test',
@@ -525,7 +540,188 @@ async function main() {
     await assertSucceeds(getDoc(doc(passwordTeacherDb, 'students', 'stu_001')));
     await assertFails(getDoc(doc(passwordTeacherDb, 'students', 'stu_sd_5a')));
 
-    console.log('PASS: All Firestore security rules emulator tests passed.');
+    // 14. Audit Log Immutability & Access Control across all roles
+    // A. Foundation Admin can create valid audit log
+    await assertSucceeds(
+      setDoc(doc(foundationDb, 'auditLogs', 'log_foundation_01'), {
+        actorUid: 'uid_foundation',
+        actorName: 'Admin Yayasan',
+        actorRole: 'FOUNDATION_ADMIN',
+        action: 'UPDATE_SYSTEM_SETTINGS',
+        targetCollection: 'systemConfig',
+        targetId: 'main',
+        summary: 'Pembaruan konfigurasi yayasan',
+        createdAt: serverTimestamp(),
+      })
+    );
+    // B. Teacher can create valid audit log for assessment actions
+    await assertSucceeds(
+      setDoc(doc(teacherDb, 'auditLogs', 'log_teacher_01'), {
+        actorUid: 'uid_teacher',
+        actorName: 'Guru SD',
+        actorRole: 'TEACHER',
+        action: 'SUBMIT_ASSESSMENT',
+        targetCollection: 'studentAssessments',
+        targetId: 'ass_submit_ok',
+        summary: 'Submit nilai siswa',
+        createdAt: serverTimestamp(),
+      })
+    );
+    // C. Student & Parent CANNOT create audit log
+    await assertFails(
+      setDoc(doc(studentDb, 'auditLogs', 'log_student_fail'), {
+        actorUid: 'uid_student',
+        actorName: 'Siswa Terdaftar',
+        actorRole: 'STUDENT',
+        action: 'HACK_LOG',
+        targetCollection: 'auditLogs',
+        targetId: 'log_student_fail',
+        summary: 'Unauthorized log',
+        createdAt: serverTimestamp(),
+      })
+    );
+    // D. Foundation Admin CANNOT update or delete existing audit log (IMMUTABLE)
+    await assertFails(
+      updateDoc(doc(foundationDb, 'auditLogs', 'log_foundation_01'), {
+        summary: 'Tampered summary',
+      })
+    );
+    await assertFails(deleteDoc(doc(foundationDb, 'auditLogs', 'log_foundation_01')));
+    // E. Teacher & Committee CANNOT update or delete audit log
+    await assertFails(
+      updateDoc(doc(teacherDb, 'auditLogs', 'log_teacher_01'), {
+        summary: 'Tampered summary',
+      })
+    );
+    await assertFails(deleteDoc(doc(teacherDb, 'auditLogs', 'log_teacher_01')));
+    // F. Student & Parent CANNOT read audit logs
+    await assertFails(getDoc(doc(studentDb, 'auditLogs', 'log_foundation_01')));
+    await assertFails(getDoc(doc(parentDb, 'auditLogs', 'log_foundation_01')));
+
+    // 15. SUPER_ADMIN privileges & role validation in Rules
+    const superAdminDb = testEnv
+      .authenticatedContext('uid_superadmin', { email_verified: true })
+      .firestore();
+    await assertSucceeds(getDoc(doc(superAdminDb, 'users', 'uid_foundation')));
+    await assertSucceeds(getDoc(doc(superAdminDb, 'academicPeriods', 'per_active')));
+    await assertSucceeds(getDocs(query(collection(superAdminDb, 'studentAssessments'))));
+
+    // 16. Instrument Versioning security & immutability on studentAssessments
+    // A. Valid create with v1.0-legacy succeeds
+    await assertSucceeds(
+      setDoc(doc(foundationDb, 'studentAssessments', 'ass_v1_ok'), {
+        studentId: 'stu_001',
+        studentName: 'Aisyah',
+        unitCode: 'SD',
+        periodId: 'per_active',
+        className: '4A',
+        scores: { P01: 4, P02: 4 },
+        averageScore: 100,
+        verificationStatus: 'Terverifikasi',
+        instrumentVersion: 'v1.0-legacy',
+        createdBy: 'uid_foundation',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // B. Valid create with v2.0-canonical succeeds (in emulator testing)
+    await assertSucceeds(
+      setDoc(doc(foundationDb, 'studentAssessments', 'ass_v2_ok'), {
+        studentId: 'stu_001',
+        studentName: 'Aisyah',
+        unitCode: 'SD',
+        periodId: 'per_active',
+        className: '4A',
+        scores: { P01: 4, P02: 4 },
+        averageScore: 100,
+        verificationStatus: 'Terverifikasi',
+        instrumentVersion: 'v2.0-canonical',
+        createdBy: 'uid_foundation',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // C. Invalid instrumentVersion fails
+    await assertFails(
+      setDoc(doc(foundationDb, 'studentAssessments', 'ass_v3_fail'), {
+        studentId: 'stu_001',
+        studentName: 'Aisyah',
+        unitCode: 'SD',
+        periodId: 'per_active',
+        className: '4A',
+        scores: { P01: 4, P02: 4 },
+        averageScore: 100,
+        verificationStatus: 'Terverifikasi',
+        instrumentVersion: 'v3.0-unauthorized',
+        createdBy: 'uid_foundation',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // D. Update preserving existing instrumentVersion succeeds (with valid revisionReason for Terverifikasi)
+    await assertSucceeds(
+      updateDoc(doc(foundationDb, 'studentAssessments', 'ass_v1_ok'), {
+        teacherNotes: 'Catatan diperbarui',
+        revisionReason: 'Revisi resmi catatan oleh admin',
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // E. Update attempting to mutate instrumentVersion fails (IMMUTABLE)
+    await assertFails(
+      updateDoc(doc(foundationDb, 'studentAssessments', 'ass_v1_ok'), {
+        instrumentVersion: 'v2.0-canonical',
+        revisionReason: 'Mencoba ubah versi',
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    // F. Production rules verification: v2.0-canonical is strictly REJECTED on create in Production rules
+    const prodRules = fs.readFileSync(path.resolve(process.cwd(), 'firestore.rules'), 'utf8');
+    const updateResp = await fetch('http://127.0.0.1:8080/emulator/v1/projects/siakhlak-rules-test:securityRules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules: { files: [{ content: prodRules }] } }),
+    });
+    if (!updateResp.ok) throw new Error(await updateResp.text());
+    await assertFails(
+      setDoc(doc(foundationDb, 'studentAssessments', 'ass_v2_prod_fail'), {
+        studentId: 'stu_001',
+        studentName: 'Aisyah',
+        unitCode: 'SD',
+        periodId: 'per_active',
+        className: '4A',
+        scores: { P01: 4, P02: 4 },
+        averageScore: 100,
+        verificationStatus: 'Terverifikasi',
+        instrumentVersion: 'v2.0-canonical',
+        createdBy: 'uid_foundation',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+    // And v1.0-legacy succeeds in Production rules
+    await assertSucceeds(
+      setDoc(doc(foundationDb, 'studentAssessments', 'ass_v1_prod_ok'), {
+        studentId: 'stu_001',
+        studentName: 'Aisyah',
+        unitCode: 'SD',
+        periodId: 'per_active',
+        className: '4A',
+        scores: { P01: 4, P02: 4 },
+        averageScore: 100,
+        verificationStatus: 'Terverifikasi',
+        instrumentVersion: 'v1.0-legacy',
+        createdBy: 'uid_foundation',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    console.log('PASS: All Firestore security rules emulator tests passed (16 suites).');
   } finally {
     await testEnv.cleanup();
   }

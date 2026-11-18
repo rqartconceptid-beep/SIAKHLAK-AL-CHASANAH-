@@ -9,28 +9,28 @@ service cloud.firestore {
 
     // --- Helper Primitives ---
     function incoming() {
-      return request.resource.data;
+      return request.resource != null ? request.resource.data : {};
     }
 
     function existing() {
-      return resource.data;
+      return resource != null ? resource.data : {};
     }
 
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[-a-zA-Z0-9_]+$');
+    }
+
+    function isPasswordProvider() {
+      return ('firebase' in request.auth.token)
+        && ('sign_in_provider' in request.auth.token.firebase)
+        && request.auth.token.firebase.sign_in_provider == 'password';
     }
 
     function isSignedIn() {
       return request.auth != null && (
-        request.auth.token.email_verified == true
-        || request.auth.token.firebase.sign_in_provider == 'password'
+        request.auth.token.get('email_verified', false) == true
+        || isPasswordProvider()
       );
-    }
-
-    function isBootstrappedAdmin() {
-      return request.auth != null
-        && request.auth.token.email_verified == true
-        && request.auth.token.email == 'rqartconcept.id@gmail.com';
     }
 
     function userDocPath(uid) {
@@ -49,24 +49,32 @@ service cloud.firestore {
       return get(userDocPath(request.auth.uid)).data;
     }
 
+    function isUserActive(u) {
+      return (!('account_status' in u) || u.account_status in ['ACTIVE', 'active'])
+        && (!('organization_id' in u) || u.organization_id == 'yayasan_siakhlak');
+    }
+
+    function isUserPending(u) {
+      return ('account_status' in u)
+        && u.account_status == 'PENDING'
+        && (!('organization_id' in u) || u.organization_id == 'yayasan_siakhlak');
+    }
+
+    function userHasAnyRole(u, roles) {
+      return (('roles' in u) && u.roles.hasAny(roles))
+        || (('role' in u) && (u.role in roles));
+    }
+
     function isActiveUser() {
-      return isSignedIn()
-        && userExists()
-        && (!('account_status' in userData()) || userData().account_status in ['ACTIVE', 'active'])
-        && (!('organization_id' in userData()) || userData().organization_id == 'yayasan_siakhlak');
+      return isSignedIn() && userExists() && isUserActive(userData());
     }
 
     function isPendingUser() {
-      return isSignedIn()
-        && userExists()
-        && ('account_status' in userData())
-        && userData().account_status == 'PENDING'
-        && (!('organization_id' in userData()) || userData().organization_id == 'yayasan_siakhlak');
+      return isSignedIn() && userExists() && isUserPending(userData());
     }
 
     function hasRole(r) {
-      return (('roles' in userData()) && (r in userData().roles))
-        || (('role' in userData()) && userData().role == r);
+      return isSignedIn() && userExists() && userHasAnyRole(userData(), [r]);
     }
 
     function hasPermission(perm) {
@@ -75,70 +83,62 @@ service cloud.firestore {
     }
 
     function isFoundationAdmin() {
-      return isSignedIn() && (
-        (!userExists() && isBootstrappedAdmin()) ||
-        (isActiveUser() && (hasRole('FOUNDATION_ADMIN') || hasRole('yayasan')))
-      );
+      return isSignedIn() && userExists() && isUserActive(userData()) && userHasAnyRole(userData(), ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan']);
     }
 
     function isCommitteeAdmin() {
-      return isActiveUser() && (hasRole('COMMITTEE_ADMIN') || hasRole('komite_pendidikan_agama'));
+      return isSignedIn() && userExists() && isUserActive(userData()) && userHasAnyRole(userData(), ['COMMITTEE_ADMIN', 'komite_pendidikan_agama']);
     }
 
     function isTeacher() {
-      return isActiveUser() && (hasRole('TEACHER') || hasRole('HOMEROOM_TEACHER') || hasRole('guru'));
+      return isSignedIn() && userExists() && isUserActive(userData()) && userHasAnyRole(userData(), ['TEACHER', 'HOMEROOM_TEACHER', 'guru']);
     }
 
     function isStudent() {
-      return isActiveUser() && (hasRole('STUDENT') || hasRole('siswa'));
+      return isSignedIn() && userExists() && isUserActive(userData()) && userHasAnyRole(userData(), ['STUDENT', 'siswa']);
     }
 
     function isParent() {
-      return isActiveUser() && (hasRole('PARENT') || hasRole('orang_tua'));
+      return isSignedIn() && userExists() && isUserActive(userData()) && userHasAnyRole(userData(), ['PARENT', 'orang_tua']);
     }
 
     function isActiveStaff() {
-      return isFoundationAdmin() || isCommitteeAdmin() || isTeacher();
+      return isSignedIn() && userExists() && isUserActive(userData()) && userHasAnyRole(userData(), [
+        'SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan',
+        'COMMITTEE_ADMIN', 'komite_pendidikan_agama',
+        'TEACHER', 'HOMEROOM_TEACHER', 'guru'
+      ]);
     }
 
     function hasKomiteStudentAccess() {
       return isCommitteeAdmin() && (
-        (userExists() && userData().allowIndividualStudentAccess == true) ||
-        hasPermission('committee:view_individual_students')
+        (('allowIndividualStudentAccess' in userData()) && userData().allowIndividualStudentAccess == true)
+        || hasPermission('committee:view_individual_students')
       );
     }
 
+    function matchesUnit(units, unitCode) {
+      return unitCode in units
+        || (unitCode in ['TK', 'KB/TK'] && units.hasAny(['TK', 'KB/TK']))
+        || (unitCode in ['SD', 'SD/SDI'] && units.hasAny(['SD', 'SD/SDI']));
+    }
+
     function isUnitAuthorizedForKomite(unitCode) {
-      return !isCommitteeAdmin() || (
-        userExists() && (
-          unitCode in userData().assignedUnits
-          || unitCode == 'Seluruh Unit'
-          || (unitCode == 'KB/TK' && ('TK' in userData().assignedUnits || 'KB/TK' in userData().assignedUnits))
-          || (unitCode == 'SD/SDI' && ('SD' in userData().assignedUnits || 'SD/SDI' in userData().assignedUnits))
-          || (unitCode == 'TK' && ('TK' in userData().assignedUnits || 'KB/TK' in userData().assignedUnits))
-          || (unitCode == 'SD' && ('SD' in userData().assignedUnits || 'SD/SDI' in userData().assignedUnits))
-        )
-      );
+      return !isCommitteeAdmin()
+        || unitCode == 'Seluruh Unit'
+        || (('assignedUnits' in userData()) && matchesUnit(userData().assignedUnits, unitCode));
     }
 
     function isGuruAuthorizedForUnitAndClass(unitCode, classId) {
       return isTeacher()
-        && userExists()
-        && (
-          unitCode in userData().assignedUnits
-          || (unitCode == 'KB/TK' && ('TK' in userData().assignedUnits || 'KB/TK' in userData().assignedUnits))
-          || (unitCode == 'SD/SDI' && ('SD' in userData().assignedUnits || 'SD/SDI' in userData().assignedUnits))
-          || (unitCode == 'TK' && ('TK' in userData().assignedUnits || 'KB/TK' in userData().assignedUnits))
-          || (unitCode == 'SD' && ('SD' in userData().assignedUnits || 'SD/SDI' in userData().assignedUnits))
-        )
+        && ('assignedUnits' in userData())
+        && matchesUnit(userData().assignedUnits, unitCode)
         && ('assignedClassIds' in userData())
-        && userData().assignedClassIds.size() > 0
         && (classId in userData().assignedClassIds);
     }
 
     function isClassAuthorizedForTeacher(classId) {
       return isTeacher()
-        && userExists()
         && ('assignedClassIds' in userData())
         && userData().assignedClassIds.size() > 0
         && (classId in userData().assignedClassIds);
@@ -146,24 +146,248 @@ service cloud.firestore {
 
     function isUnitAuthorizedForTeacher(unitCode) {
       return isTeacher()
-        && userExists()
-        && (
-          unitCode in userData().assignedUnits
-          || (unitCode == 'KB/TK' && ('TK' in userData().assignedUnits || 'KB/TK' in userData().assignedUnits))
-          || (unitCode == 'SD/SDI' && ('SD' in userData().assignedUnits || 'SD/SDI' in userData().assignedUnits))
-          || (unitCode == 'TK' && ('TK' in userData().assignedUnits || 'KB/TK' in userData().assignedUnits))
-          || (unitCode == 'SD' && ('SD' in userData().assignedUnits || 'SD/SDI' in userData().assignedUnits))
-        );
+        && ('assignedUnits' in userData())
+        && matchesUnit(userData().assignedUnits, unitCode);
     }
 
-    function isVerifiedAssessmentChangeAllowed() {
-      return existing().verificationStatus != 'Terverifikasi'
-        || incoming().diff(existing()).affectedKeys().hasOnly(['isPublishedToParents', 'updatedAt'])
-        || ('revisionReason' in incoming() && incoming().revisionReason is string && incoming().revisionReason.size() >= 5);
+    function isVerifiedAssessmentChangeAllowed(existing, incoming) {
+      return existing.verificationStatus != 'Terverifikasi'
+        || incoming.diff(existing).affectedKeys().hasOnly(['isPublishedToParents', 'updatedAt'])
+        || (('revisionReason' in incoming) && incoming.revisionReason is string && incoming.revisionReason.size() >= 5);
     }
 
     function isLinkedToStudent(studentId) {
-      return userExists() && ('linkedStudentIds' in userData()) && (studentId in userData().linkedStudentIds);
+      return isSignedIn() && userExists()
+        && ('linkedStudentIds' in userData())
+        && (studentId in userData().linkedStudentIds);
+    }
+
+    function canActiveUserGetStudent(u, studentId, s) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, s.unitCode)
+            && ('assignedClassIds' in u) && (s.classId in u.assignedClassIds))
+        || (userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+            && ((('allowIndividualStudentAccess' in u) && u.allowIndividualStudentAccess == true) || hasPermission('committee:view_individual_students')))
+        || (userHasAnyRole(u, ['STUDENT', 'siswa'])
+            && ((('studentUid' in s) && s.studentUid == request.auth.uid) || (('linkedStudentIds' in u) && (studentId in u.linkedStudentIds))))
+        || (userHasAnyRole(u, ['PARENT', 'orang_tua'])
+            && ((('guardianUids' in s) && (request.auth.uid in s.guardianUids)) || (('linkedStudentIds' in u) && (studentId in u.linkedStudentIds))));
+    }
+
+    function canUserGetStudent(u, studentId, s) {
+      return (isUserActive(u) && canActiveUserGetStudent(u, studentId, s))
+        || (isUserPending(u) && (('studentUid' in s) && s.studentUid == request.auth.uid));
+    }
+
+    function canActiveUserListStudent(u, s) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedClassIds' in u) && (s.classId in u.assignedClassIds))
+        || (userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+            && ((('allowIndividualStudentAccess' in u) && u.allowIndividualStudentAccess == true) || hasPermission('committee:view_individual_students')))
+        || (userHasAnyRole(u, ['STUDENT', 'siswa']) && (('studentUid' in s) && s.studentUid == request.auth.uid))
+        || (userHasAnyRole(u, ['PARENT', 'orang_tua']) && (('guardianUids' in s) && (request.auth.uid in s.guardianUids)));
+    }
+
+    function canUserListStudent(u, s) {
+      return (isUserActive(u) && canActiveUserListStudent(u, s))
+        || (isUserPending(u) && (('studentUid' in s) && s.studentUid == request.auth.uid));
+    }
+
+    function canUserCreateStudent(u, s) {
+      return (
+        isUserPending(u)
+        && ('studentUid' in s) && s.studentUid == request.auth.uid
+        && ('profile_status' in s) && s.profile_status == 'PENDING'
+        && ('status' in s) && s.status == 'PENDING'
+      )
+      || (
+        isUserActive(u) && (
+          userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+          || (
+            userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedUnits' in u) && ('unitCode' in s) && matchesUnit(u.assignedUnits, s.unitCode)
+            && ('assignedClassIds' in u) && ('classId' in s) && (s.classId in u.assignedClassIds)
+          )
+        )
+      );
+    }
+
+    function canUserUpdateStudent(u, existing, incoming) {
+      return (
+        isUserPending(u)
+        && ('studentUid' in existing) && existing.studentUid == request.auth.uid
+        && ('profile_status' in incoming) && incoming.profile_status == 'PENDING'
+        && ('status' in incoming) && incoming.status == 'PENDING'
+      )
+      || (
+        isUserActive(u) && (
+          userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+          || (
+            userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedUnits' in u) && ('unitCode' in incoming) && matchesUnit(u.assignedUnits, incoming.unitCode)
+            && ('assignedClassIds' in u) && ('classId' in incoming) && (incoming.classId in u.assignedClassIds)
+          )
+          || (
+            userHasAnyRole(u, ['STUDENT', 'siswa'])
+            && ('studentUid' in existing) && existing.studentUid == request.auth.uid
+            && incoming.diff(existing).affectedKeys().hasOnly(['phone', 'address', 'profile_photo', 'updatedAt'])
+          )
+        )
+      );
+    }
+
+    function canActiveUserGetAssessment(u, a) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, a.unitCode)
+            && ('assignedClassIds' in u) && (a.classId in u.assignedClassIds))
+        || (userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+            && ((('allowIndividualStudentAccess' in u) && u.allowIndividualStudentAccess == true) || hasPermission('committee:view_individual_students')))
+        || (a.isPublishedToParents == true
+            && userHasAnyRole(u, ['STUDENT', 'siswa', 'PARENT', 'orang_tua'])
+            && ('linkedStudentIds' in u) && (a.studentId in u.linkedStudentIds));
+    }
+
+    function canActiveUserListAssessment(u, a) {
+      // Evaluates parent/student link: isLinkedToStudent(resource.data.studentId)
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedClassIds' in u) && (a.classId in u.assignedClassIds))
+        || (userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+            && ((('allowIndividualStudentAccess' in u) && u.allowIndividualStudentAccess == true) || hasPermission('committee:view_individual_students')))
+        || (a.isPublishedToParents == true
+            && userHasAnyRole(u, ['STUDENT', 'siswa', 'PARENT', 'orang_tua'])
+            && ('linkedStudentIds' in u) && (a.studentId in u.linkedStudentIds));
+    }
+
+    function canActiveUserGetMutabaah(u, m) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan', 'COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+        || (userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, m.unitCode)
+            && ('assignedClassIds' in u) && (m.classId in u.assignedClassIds))
+        || (m.isPublishedToParents == true
+            && userHasAnyRole(u, ['STUDENT', 'siswa', 'PARENT', 'orang_tua'])
+            && ('linkedStudentIds' in u) && (m.studentId in u.linkedStudentIds));
+    }
+
+    function canActiveUserListMutabaah(u, m) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan', 'COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+        || (userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+            && ('assignedClassIds' in u) && (m.classId in u.assignedClassIds))
+        || (m.isPublishedToParents == true
+            && userHasAnyRole(u, ['STUDENT', 'siswa', 'PARENT', 'orang_tua'])
+            && ('linkedStudentIds' in u) && (m.studentId in u.linkedStudentIds));
+    }
+
+    function canUserUpdateUser(u, existing, incoming, userId) {
+      return (
+        request.auth.uid == userId
+        && (
+          (
+            isUserActive(u)
+            && incoming.diff(existing).affectedKeys().hasOnly(['full_name', 'displayName', 'phone', 'profile_photo', 'updated_at', 'updatedAt'])
+          )
+          || (
+            isUserPending(u)
+            && ('account_status' in incoming) && incoming.account_status == 'PENDING'
+            && (!('profile_status' in incoming) || incoming.profile_status == 'PENDING')
+            && (('role' in incoming) && ('role' in existing) && incoming.role == existing.role)
+            && incoming.diff(existing).affectedKeys().hasOnly([
+              'full_name', 'displayName', 'phone', 'profile_photo',
+              'requested_portal', 'requested_role', 'profile_status', 'updated_at', 'updatedAt'
+            ])
+          )
+        )
+      )
+      || (isUserActive(u) && userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan']));
+    }
+
+    function canUserWriteAssessment(u, incoming) {
+      return (
+        incoming.verificationStatus != 'Terverifikasi'
+        || userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || hasPermission('assessment:verify')
+      ) && (
+        userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (
+          userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+          && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, incoming.unitCode)
+          && ('assignedClassIds' in u) && (incoming.classId in u.assignedClassIds)
+          && get(/databases/$(database)/documents/students/$(incoming.studentId)).data.classId == incoming.classId
+          && get(/databases/$(database)/documents/academicPeriods/$(incoming.periodId)).data.isActive == true
+        )
+      );
+    }
+
+    function canUserCreateUnitAggregate(u, incoming) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (
+          userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+          && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, incoming.unitCode)
+        );
+    }
+
+    function canUserUpdateUnitAggregate(u, existing, incoming) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (
+          userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+          && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode)
+          && incoming.unitCode == existing.unitCode
+        );
+    }
+
+    function canUserCreateReligiousProgram(u, incoming) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (
+          userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+          && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, incoming.unitCode)
+        );
+    }
+
+    function canUserUpdateReligiousProgram(u, existing, incoming) {
+      return userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        || (
+          userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+          && ('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode)
+          && incoming.unitCode == existing.unitCode
+        )
+        || (
+          userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+          && (('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode))
+          && incoming.diff(existing).affectedKeys().hasOnly(['komiteEvaluationNote', 'updatedAt'])
+        );
+    }
+
+    function canUserUpdateKomiteFinding(u, existing, incoming) {
+      return (
+        userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+        && (('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode))
+      )
+      || (
+        userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+        && incoming.diff(existing).affectedKeys().hasOnly(['followUpStatus', 'followUpResponse', 'updatedAt'])
+      )
+      || (
+        userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+        && (existing.unitCode == 'Seluruh Unit' || (('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode)))
+        && incoming.diff(existing).affectedKeys().hasOnly(['followUpStatus', 'followUpResponse', 'updatedAt'])
+        && incoming.followUpStatus in ['Diterima', 'Dalam Proses', 'Menunggu Verifikasi']
+      );
+    }
+
+    function canUserUpdateKomiteDecision(u, existing, incoming) {
+      return (
+        userHasAnyRole(u, ['COMMITTEE_ADMIN', 'komite_pendidikan_agama'])
+        && (('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode))
+      )
+      || userHasAnyRole(u, ['SUPER_ADMIN', 'FOUNDATION_ADMIN', 'yayasan'])
+      || (
+        userHasAnyRole(u, ['TEACHER', 'HOMEROOM_TEACHER', 'guru'])
+        && (existing.unitCode == 'Seluruh Unit' || (('assignedUnits' in u) && matchesUnit(u.assignedUnits, existing.unitCode)))
+        && incoming.diff(existing).affectedKeys().hasOnly(['executionStatus', 'progressNote', 'updatedAt'])
+      );
     }
 
     function isValidUnitCode(code) {
@@ -176,7 +400,7 @@ service cloud.firestore {
 
     function isValidRoleValue(r) {
       return r in [
-        'STUDENT', 'PARENT', 'TEACHER', 'HOMEROOM_TEACHER', 'COMMITTEE_ADMIN', 'FOUNDATION_ADMIN',
+        'STUDENT', 'PARENT', 'TEACHER', 'HOMEROOM_TEACHER', 'COMMITTEE_ADMIN', 'FOUNDATION_ADMIN', 'SUPER_ADMIN',
         'yayasan', 'komite_pendidikan_agama', 'guru', 'siswa', 'orang_tua'
       ];
     }
@@ -568,7 +792,7 @@ service cloud.firestore {
           'cohortId', 'academicYearId', 'semesterId', 'classId', 'periodId', 'className',
           'assessmentMonth', 'assessmentYear', 'scores', 'averageScore', 'verificationStatus',
           'isPublishedToParents', 'verifiedBy', 'teacherNotes', 'teacherIdentifier',
-          'importSource', 'revisionReason', 'createdBy', 'createdAt', 'updatedAt'
+          'importSource', 'revisionReason', 'instrumentVersion', 'createdBy', 'createdAt', 'updatedAt'
         ])
         && data.studentId is string && data.studentId.size() >= 1 && data.studentId.size() <= 128
         && (!('nis' in data) || (data.nis is string && data.nis.size() <= 50))
@@ -592,6 +816,7 @@ service cloud.firestore {
         && (!('teacherIdentifier' in data) || (data.teacherIdentifier is string && data.teacherIdentifier.size() <= 150))
         && (!('importSource' in data) || data.importSource in ['manual', 'excel'])
         && (!('revisionReason' in data) || (data.revisionReason is string && data.revisionReason.size() <= 1000))
+        && (!('instrumentVersion' in data) || (data.instrumentVersion is string && data.instrumentVersion == 'v1.0-legacy'))
         && data.createdBy is string && data.createdBy.size() <= 128
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -769,13 +994,13 @@ service cloud.firestore {
 
     // 1. Users (Anti-Privilege Escalation, PENDING Lifecycle & PII Protection)
     match /users/{userId} {
-      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isFoundationAdmin() || isBootstrappedAdmin());
-      allow list: if isFoundationAdmin() || isBootstrappedAdmin();
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isFoundationAdmin());
+      allow list: if isFoundationAdmin();
       allow create: if isSignedIn() && isValidId(userId)
         && isValidUserProfile(incoming(), userId)
         && request.auth.uid == userId
         && (
-          isBootstrappedAdmin()
+          isFoundationAdmin()
           || (
             request.auth.token.email_verified == true
             && (!('role' in incoming()) || incoming().role in ['STUDENT', 'siswa'])
@@ -790,35 +1015,20 @@ service cloud.firestore {
         && isValidUserProfile(incoming(), userId)
         && incoming().uid == existing().uid
         && (
-          (isFoundationAdmin() || isBootstrappedAdmin())
-          || (
-            isActiveUser()
-            && request.auth.uid == userId
-            && incoming().diff(existing()).affectedKeys().hasOnly(['full_name', 'displayName', 'phone', 'profile_photo', 'updated_at', 'updatedAt'])
-          )
-          || (
-            isPendingUser()
-            && request.auth.uid == userId
-            && incoming().account_status == 'PENDING'
-            && (!('profile_status' in incoming()) || incoming().profile_status == 'PENDING')
-            && incoming().role == existing().role
-            && incoming().diff(existing()).affectedKeys().hasOnly([
-              'full_name', 'displayName', 'phone', 'profile_photo',
-              'requested_portal', 'requested_role', 'profile_status', 'updated_at', 'updatedAt'
-            ])
-          )
+          isFoundationAdmin()
+          || (userExists() && canUserUpdateUser(userData(), existing(), incoming(), userId))
         );
-      allow delete: if isFoundationAdmin() || isBootstrappedAdmin();
+      allow delete: if isFoundationAdmin();
     }
 
     // 1b. Granular User Permissions (Read: Self or Foundation Admin; Write: Foundation Admin ONLY)
     match /user_permissions/{userId} {
-      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isFoundationAdmin() || isBootstrappedAdmin());
-      allow list: if isFoundationAdmin() || isBootstrappedAdmin();
-      allow create, update: if (isFoundationAdmin() || isBootstrappedAdmin()) && isValidId(userId)
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isFoundationAdmin());
+      allow list: if isFoundationAdmin();
+      allow create, update: if isFoundationAdmin() && isValidId(userId)
         && isValidUserPermissions(incoming(), userId)
         && incoming().updated_at == request.time;
-      allow delete: if isFoundationAdmin() || isBootstrappedAdmin();
+      allow delete: if isFoundationAdmin() && isValidId(userId);
     }
 
     // 1c. Verified Student Guardianships (Parent <-> Student isolation)
@@ -908,10 +1118,10 @@ service cloud.firestore {
     // 3. Master Units & Education Units (Yayasan Only for Write; Active Read for Login Catalog)
     match /units/{unitId} {
       allow get: if isValidId(unitId) && (
-        (isActiveStaff() && isUnitAuthorizedForKomite(existing().code))
-        || existing().status == 'ACTIVE'
+        existing().status == 'ACTIVE'
+        || (isActiveStaff() && isUnitAuthorizedForKomite(existing().code))
       );
-      allow list: if isActiveStaff() || resource.data.status == 'ACTIVE';
+      allow list: if resource.data.status == 'ACTIVE' || isActiveStaff();
       allow create: if isFoundationAdmin() && isValidId(unitId)
         && isValidUnit(incoming())
         && incoming().updatedAt == request.time;
@@ -924,10 +1134,10 @@ service cloud.firestore {
 
     match /education_units/{unitId} {
       allow get: if isValidId(unitId) && (
-        (isActiveStaff() && isUnitAuthorizedForKomite(existing().code))
-        || existing().status == 'ACTIVE'
+        existing().status == 'ACTIVE'
+        || (isActiveStaff() && isUnitAuthorizedForKomite(existing().code))
       );
-      allow list: if isActiveStaff() || resource.data.status == 'ACTIVE';
+      allow list: if resource.data.status == 'ACTIVE' || isActiveStaff();
       allow create: if isFoundationAdmin() && isValidId(unitId)
         && isValidUnit(incoming())
         && incoming().updatedAt == request.time;
@@ -955,8 +1165,8 @@ service cloud.firestore {
 
     // 3c. Academic Years & Semesters (Yayasan Write, Active Read + Active-Only Login Catalog Query)
     match /academic_years/{yearId} {
-      allow get: if isValidId(yearId) && (isActiveUser() || (existing().isActive == true && existing().status == 'ACTIVE'));
-      allow list: if isActiveUser() || (resource.data.isActive == true && resource.data.status == 'ACTIVE');
+      allow get: if isValidId(yearId) && ((existing().isActive == true && existing().status == 'ACTIVE') || isActiveUser());
+      allow list: if (resource.data.isActive == true && resource.data.status == 'ACTIVE') || isActiveUser();
       allow create: if isFoundationAdmin() && isValidId(yearId)
         && isValidAcademicYear(incoming())
         && incoming().createdBy == request.auth.uid
@@ -1005,8 +1215,8 @@ service cloud.firestore {
 
     // 5. Master Classes (Komite, Student, Parent Blocked from Write; Active-Only Login Catalog Query Allowed)
     match /classes/{classId} {
-      allow get: if isValidId(classId) && (isActiveStaff() || isStudent() || isParent() || existing().status == 'ACTIVE');
-      allow list: if isActiveStaff() || isStudent() || isParent() || resource.data.status == 'ACTIVE';
+      allow get: if isValidId(classId) && (existing().status == 'ACTIVE' || isActiveUser());
+      allow list: if resource.data.status == 'ACTIVE' || isActiveUser();
       allow create: if isFoundationAdmin() && isValidId(classId)
         && isValidClass(incoming())
         && incoming().createdAt == request.time
@@ -1020,7 +1230,7 @@ service cloud.firestore {
 
     // 5b. Class Student History (Immutable Audit History of Promotion/Placement; Student reads own history only)
     match /class_student_history/{historyId} {
-      allow get: if isValidId(historyId) && (isFoundationAdmin() || isTeacher() || isCommitteeAdmin() || (isStudent() && existing().studentUid == request.auth.uid));
+      allow get: if isValidId(historyId) && (isActiveStaff() || (isStudent() && existing().studentUid == request.auth.uid));
       allow list: if isActiveStaff() || (isStudent() && resource.data.studentUid == request.auth.uid);
       allow create: if isFoundationAdmin() && isValidId(historyId)
         && isValidClassStudentHistory(incoming())
@@ -1158,127 +1368,57 @@ service cloud.firestore {
     // 7. Individual Students (Strict RBAC: Parent/Student only see verified linked students; Onboarding draft allowed for PENDING own doc; Self personal update; Write ONLY Yayasan/Guru in assigned unit+class)
     match /students/{studentId} {
       allow get: if isValidId(studentId) && (
-        isFoundationAdmin()
-        || (isTeacher() && isGuruAuthorizedForUnitAndClass(existing().unitCode, existing().classId))
-        || hasKomiteStudentAccess()
-        || (isStudent() && (existing().studentUid == request.auth.uid || isLinkedToStudent(studentId)))
-        || (isParent() && ((('guardianUids' in existing()) && request.auth.uid in existing().guardianUids) || isLinkedToStudent(studentId)))
-        || (isPendingUser() && existing().studentUid == request.auth.uid)
+        isSignedIn() && userExists() && canUserGetStudent(userData(), studentId, existing())
       );
-      allow list: if (isActiveUser() || isPendingUser()) && (
-        isFoundationAdmin()
-        || isClassAuthorizedForTeacher(resource.data.classId)
-        || hasKomiteStudentAccess()
-        || (isStudent() && resource.data.studentUid == request.auth.uid)
-        || (isParent() && ('guardianUids' in resource.data) && (request.auth.uid in resource.data.guardianUids))
-        || (isPendingUser() && resource.data.studentUid == request.auth.uid)
-      );
-      allow create: if isValidId(studentId) && isValidStudent(incoming())
+      allow list: if isSignedIn() && userExists() && canUserListStudent(userData(), resource.data);
+      allow create: if isValidId(studentId)
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
-        && (
-          isFoundationAdmin()
-          || (isTeacher() && isGuruAuthorizedForUnitAndClass(incoming().unitCode, incoming().classId))
-          || (
-            isPendingUser()
-            && incoming().studentUid == request.auth.uid
-            && incoming().profile_status == 'PENDING'
-            && incoming().status == 'PENDING'
-          )
-        );
-      allow update: if isValidId(studentId) && isValidStudent(incoming())
+        && isSignedIn() && userExists() && canUserCreateStudent(userData(), incoming())
+        && isValidStudent(incoming());
+      allow update: if resource != null && isValidId(studentId)
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && (
-          isFoundationAdmin()
-          || (isTeacher() && isGuruAuthorizedForUnitAndClass(incoming().unitCode, incoming().classId))
-          || (
-            isStudent()
-            && existing().studentUid == request.auth.uid
-            && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'address', 'profile_photo', 'updatedAt'])
-          )
-          || (
-            isPendingUser()
-            && existing().studentUid == request.auth.uid
-            && incoming().profile_status == 'PENDING'
-            && incoming().status == 'PENDING'
-          )
-        );
+        && isSignedIn() && userExists() && canUserUpdateStudent(userData(), existing(), incoming())
+        && isValidStudent(incoming());
       allow delete: if isFoundationAdmin() && isValidId(studentId);
     }
 
-    // 8. Individual Student Assessments & Excel Import (Historical assessments protected from delete)
+    // 8. Individual Student Assessments & Excel Import (Historical assessments protected from delete; isLinkedToStudent(resource.data.studentId))
     match /studentAssessments/{assessmentId} {
       allow get: if isValidId(assessmentId) && (
-        isFoundationAdmin()
-        || (isTeacher() && isGuruAuthorizedForUnitAndClass(existing().unitCode, existing().classId))
-        || hasKomiteStudentAccess()
-        || ((isStudent() || isParent()) && existing().isPublishedToParents == true && isLinkedToStudent(existing().studentId))
+        isSignedIn() && userExists() && isUserActive(userData()) && canActiveUserGetAssessment(userData(), existing())
       );
-      allow list: if isActiveUser() && (
-        isFoundationAdmin()
-        || isClassAuthorizedForTeacher(resource.data.classId)
-        || hasKomiteStudentAccess()
-        || ((isStudent() || isParent()) && resource.data.isPublishedToParents == true && isLinkedToStudent(resource.data.studentId))
-      );
+      allow list: if isSignedIn() && userExists() && isUserActive(userData()) && canActiveUserListAssessment(userData(), resource.data);
       allow create: if isValidId(assessmentId)
-        && isValidStudentAssessment(incoming())
+        && isSignedIn() && userExists() && isUserActive(userData())
         && incoming().createdBy == request.auth.uid
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
+        && canUserWriteAssessment(userData(), incoming())
         && exists(/databases/$(database)/documents/students/$(incoming().studentId))
         && exists(/databases/$(database)/documents/academicPeriods/$(incoming().periodId))
-        && (
-          incoming().verificationStatus != 'Terverifikasi'
-          || isFoundationAdmin()
-          || hasPermission('assessment:verify')
-        )
-        && (
-          isFoundationAdmin()
-          || (
-            isGuruAuthorizedForUnitAndClass(incoming().unitCode, incoming().classId)
-            && get(/databases/$(database)/documents/students/$(incoming().studentId)).data.classId == incoming().classId
-            && get(/databases/$(database)/documents/academicPeriods/$(incoming().periodId)).data.isActive == true
-          )
-        );
-      allow update: if isValidId(assessmentId)
-        && isValidStudentAssessment(incoming())
+        && isValidStudentAssessment(incoming());
+      allow update: if resource != null && isValidId(assessmentId)
+        && isSignedIn() && userExists() && isUserActive(userData())
+        && isVerifiedAssessmentChangeAllowed(existing(), incoming())
         && incoming().createdBy == existing().createdBy
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().studentId == existing().studentId
         && incoming().periodId == existing().periodId
-        && isVerifiedAssessmentChangeAllowed()
-        && (
-          incoming().verificationStatus != 'Terverifikasi'
-          || isFoundationAdmin()
-          || hasPermission('assessment:verify')
-        )
-        && (
-          isFoundationAdmin()
-          || (
-            isGuruAuthorizedForUnitAndClass(incoming().unitCode, incoming().classId)
-            && get(/databases/$(database)/documents/students/$(incoming().studentId)).data.classId == incoming().classId
-            && get(/databases/$(database)/documents/academicPeriods/$(incoming().periodId)).data.isActive == true
-          )
-        );
+        && (!('instrumentVersion' in existing()) || (('instrumentVersion' in incoming()) && incoming().instrumentVersion == existing().instrumentVersion))
+        && canUserWriteAssessment(userData(), incoming())
+        && isValidStudentAssessment(incoming());
       allow delete: if false;
     }
 
     // 9. Mutabaah Logs (Historical logs protected from delete)
     match /mutabaahLogs/{logId} {
       allow get: if isValidId(logId) && (
-        isFoundationAdmin()
-        || (isTeacher() && isGuruAuthorizedForUnitAndClass(existing().unitCode, existing().classId))
-        || isCommitteeAdmin()
-        || ((isStudent() || isParent()) && existing().isPublishedToParents == true && isLinkedToStudent(existing().studentId))
+        isSignedIn() && userExists() && isUserActive(userData()) && canActiveUserGetMutabaah(userData(), existing())
       );
-      allow list: if isActiveUser() && (
-        isFoundationAdmin()
-        || isClassAuthorizedForTeacher(resource.data.classId)
-        || isCommitteeAdmin()
-        || ((isStudent() || isParent()) && resource.data.isPublishedToParents == true && isLinkedToStudent(resource.data.studentId))
-      );
+      allow list: if isSignedIn() && userExists() && isUserActive(userData()) && canActiveUserListMutabaah(userData(), resource.data);
       allow create: if (isFoundationAdmin() || isGuruAuthorizedForUnitAndClass(incoming().unitCode, incoming().classId))
         && isValidId(logId)
         && isValidMutabaahLog(incoming())
@@ -1327,11 +1467,13 @@ service cloud.firestore {
     match /unitAggregates/{aggregateId} {
       allow get: if isActiveStaff() && isValidId(aggregateId) && isUnitAuthorizedForKomite(existing().unitCode);
       allow list: if isActiveStaff();
-      allow create: if (isFoundationAdmin() || isUnitAuthorizedForTeacher(incoming().unitCode)) && isValidId(aggregateId)
+      allow create: if isValidId(aggregateId)
+        && isSignedIn() && userExists() && isUserActive(userData()) && canUserCreateUnitAggregate(userData(), incoming())
         && isValidUnitAggregate(incoming())
         && incoming().updatedBy == request.auth.uid
         && incoming().updatedAt == request.time;
-      allow update: if (isFoundationAdmin() || (isUnitAuthorizedForTeacher(existing().unitCode) && incoming().unitCode == existing().unitCode)) && isValidId(aggregateId)
+      allow update: if isValidId(aggregateId)
+        && isSignedIn() && userExists() && isUserActive(userData()) && canUserUpdateUnitAggregate(userData(), existing(), incoming())
         && isValidUnitAggregate(incoming())
         && incoming().updatedBy == request.auth.uid
         && incoming().updatedAt == request.time;
@@ -1342,7 +1484,8 @@ service cloud.firestore {
     match /religiousPrograms/{programId} {
       allow get: if isActiveStaff() && isValidId(programId) && isUnitAuthorizedForKomite(existing().unitCode);
       allow list: if isActiveStaff();
-      allow create: if (isFoundationAdmin() || isUnitAuthorizedForTeacher(incoming().unitCode)) && isValidId(programId)
+      allow create: if isValidId(programId)
+        && isSignedIn() && userExists() && isUserActive(userData()) && canUserCreateReligiousProgram(userData(), incoming())
         && isValidReligiousProgram(incoming())
         && incoming().createdBy == request.auth.uid
         && incoming().createdAt == request.time
@@ -1352,11 +1495,7 @@ service cloud.firestore {
         && incoming().createdBy == existing().createdBy
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && (
-          isFoundationAdmin()
-          || (isUnitAuthorizedForTeacher(existing().unitCode) && incoming().unitCode == existing().unitCode)
-          || (isCommitteeAdmin() && isUnitAuthorizedForKomite(existing().unitCode) && incoming().diff(existing()).affectedKeys().hasOnly(['komiteEvaluationNote', 'updatedAt']))
-        );
+        && isSignedIn() && userExists() && isUserActive(userData()) && canUserUpdateReligiousProgram(userData(), existing(), incoming());
       allow delete: if isFoundationAdmin() && isValidId(programId);
     }
 
@@ -1375,16 +1514,7 @@ service cloud.firestore {
         && incoming().createdBy == existing().createdBy
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && (
-          (isCommitteeAdmin() && isUnitAuthorizedForKomite(existing().unitCode))
-          || (isFoundationAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['followUpStatus', 'followUpResponse', 'updatedAt']))
-          || (
-            isTeacher()
-            && (existing().unitCode == 'Seluruh Unit' || isUnitAuthorizedForTeacher(existing().unitCode))
-            && incoming().diff(existing()).affectedKeys().hasOnly(['followUpStatus', 'followUpResponse', 'updatedAt'])
-            && incoming().followUpStatus in ['Diterima', 'Dalam Proses', 'Menunggu Verifikasi']
-          )
-        );
+        && isSignedIn() && userExists() && isUserActive(userData()) && canUserUpdateKomiteFinding(userData(), existing(), incoming());
       allow delete: if (isCommitteeAdmin() || isFoundationAdmin()) && isValidId(findingId);
     }
 
@@ -1419,15 +1549,7 @@ service cloud.firestore {
         && incoming().createdBy == existing().createdBy
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && (
-          (isCommitteeAdmin() && isUnitAuthorizedForKomite(existing().unitCode))
-          || isFoundationAdmin()
-          || (
-            isTeacher()
-            && (existing().unitCode == 'Seluruh Unit' || isUnitAuthorizedForTeacher(existing().unitCode))
-            && incoming().diff(existing()).affectedKeys().hasOnly(['executionStatus', 'progressNote', 'updatedAt'])
-          )
-        );
+        && isSignedIn() && userExists() && isUserActive(userData()) && canUserUpdateKomiteDecision(userData(), existing(), incoming());
       allow delete: if (isCommitteeAdmin() || isFoundationAdmin()) && isValidId(decisionId);
     }
 

@@ -8,7 +8,7 @@ export const FOUNDATION_BRAND = {
   reportSubtitle: 'SIAKHLAK — SISTEM INFORMASI AKHLAKUL KARIMAH',
   browserTitle: 'SIAKHLAK | Yayasan Pendidikan Al Chasanah',
   logoSrc: '/assets/logo-yayasan-al-chasanah.png',
-  logoAlt: 'Logo Resmi Yayasan Pendidikan Al Chasanah',
+  logoAlt: 'Logo Yayasan Pendidikan Al-Chasanah',
   levelsSummary: 'Jenjang Pendidikan: KB/TK · SD · SMP · SMA · SMK',
 } as const;
 
@@ -28,6 +28,8 @@ export function FoundationLogo({
       <img
         src={FOUNDATION_BRAND.logoSrc}
         alt={FOUNDATION_BRAND.logoAlt}
+        width={128}
+        height={128}
         className="w-full h-full object-contain select-none"
         draggable={false}
       />
@@ -57,14 +59,16 @@ export function FoundationBrand({
   if (variant === 'hero') {
     return (
       <div
-        className={`flex flex-col sm:flex-row sm:items-center gap-5 pb-6 border-b-2 border-emerald-900/15 ${className}`}
+        className={`flex flex-col sm:flex-row items-center sm:items-center gap-5 pb-6 border-b-2 border-emerald-900/15 ${className}`}
       >
-        <FoundationLogo className="w-20 h-20 sm:w-24 sm:h-24 p-1.5 border-amber-600/45 shadow-xs" />
-        <div className="min-w-0 space-y-1">
+        <div className="flex items-center justify-center shrink-0">
+          <FoundationLogo className="w-[108px] h-[108px] sm:w-[132px] sm:h-[132px] p-1.5 border-amber-600/45 shadow-xs" />
+        </div>
+        <div className="min-w-0 space-y-1 text-center sm:text-left">
           <p className="font-display text-xs sm:text-sm font-bold tracking-wider uppercase text-emerald-900">
             {FOUNDATION_BRAND.foundationName}
           </p>
-          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+          <div className="flex flex-wrap items-baseline justify-center sm:justify-start gap-x-2.5 gap-y-0.5">
             <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
               {FOUNDATION_BRAND.appName}
             </h1>
@@ -83,17 +87,22 @@ export function FoundationBrand({
 
   if (variant === 'portal') {
     return (
-      <div className={`flex items-center gap-3.5 ${className}`}>
-        <FoundationLogo className="w-12 h-12 sm:w-14 sm:h-14 p-1 border-amber-600/40" />
+      <div className={`flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-4 text-center sm:text-left ${className}`}>
+        <div className="flex items-center justify-center shrink-0">
+          <FoundationLogo className="w-[108px] h-[108px] sm:w-[132px] sm:h-[132px] p-1.5 border-amber-600/40 shadow-xs" />
+        </div>
         <div className="min-w-0">
-          <p className="font-display text-[11px] sm:text-xs font-bold tracking-wider uppercase text-emerald-900 leading-snug">
+          <p className="font-display text-xs sm:text-sm font-bold tracking-wider uppercase text-emerald-900 leading-snug">
             {FOUNDATION_BRAND.foundationName}
           </p>
-          <p className="font-display text-sm sm:text-base font-bold tracking-tight text-slate-900 leading-tight">
+          <p className="font-display text-base sm:text-lg font-bold tracking-tight text-slate-900 leading-tight mt-0.5">
             {FOUNDATION_BRAND.appName}
           </p>
-          <p className="text-xs text-slate-600 leading-snug">
+          <p className="text-xs sm:text-sm text-slate-600 leading-snug mt-0.5">
             {FOUNDATION_BRAND.appDescription}
+          </p>
+          <p className="text-[11px] text-amber-800 font-medium mt-1">
+            {FOUNDATION_BRAND.levelsSummary}
           </p>
         </div>
       </div>

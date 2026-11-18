@@ -230,7 +230,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [userPermissionsDoc, setUserPermissionsDoc] = useState<UserPermissionsDoc | null>(null);
-  const [dbStatus, setDbStatus] = useState<DbConnectionStatus>('CHECKING');
+  const [dbStatus, setDbStatus] = useState<DbConnectionStatus>('CONNECTING');
   const [authError, setAuthError] = useState<string | null>(null);
 
   const [activeLoginRoutePortal, setActiveLoginRoutePortal] = useState<LoginPortal | null>(
@@ -514,6 +514,21 @@ export default function App() {
       setFirebaseUser(user);
       if (user) {
         try {
+          // Token sanity check: Detect invalid or expired refresh tokens (e.g. from previous sessions)
+          try {
+            await user.getIdToken();
+          } catch (tokenErr) {
+            console.warn('[Auth] Stale or invalid user token detected, clearing session:', tokenErr);
+            try {
+              await signOut(auth);
+            } catch {
+              // Ignore sign-out cleanup error
+            }
+            setFirebaseUser(null);
+            setAuthReady(true);
+            return;
+          }
+
           const studentMode = readStudentLoginMode();
           const authMethod = readAuthMethod();
           const isPasswordProvider =
@@ -600,9 +615,15 @@ export default function App() {
           }
           setAuthError(null);
         } catch (err) {
-          setAuthError(
-            err instanceof Error ? err.message : 'Gagal memuat profil pengguna.'
-          );
+          const msg = err instanceof Error ? err.message : 'Gagal memuat profil pengguna.';
+          if (msg.includes('offline') || msg.includes('auth/') || msg.includes('token')) {
+            try {
+              await signOut(auth);
+            } catch {
+              // Ignore sign-out cleanup error
+            }
+          }
+          setAuthError(msg);
         }
       } else {
         const preservedError = preservedAuthErrorRef.current;

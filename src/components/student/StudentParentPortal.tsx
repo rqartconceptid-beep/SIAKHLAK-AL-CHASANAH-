@@ -21,6 +21,7 @@ import {
 import { EmptyState, Panel, RestrictedNotice, SectionHeader } from '../ui/Primitives';
 import { MyProfileView } from '../profile/MyProfileView';
 import { FoundationBrand, FoundationReportHeader } from '../branding/FoundationBrand';
+import { resolveAssessmentInstrument } from '../../utils/instrumentResolver';
 
 export function StudentParentPortal({
   profile,
@@ -364,19 +365,25 @@ export function StudentParentPortal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {AKHLAK_31_INDICATORS.map((ind) => {
-                      const val = getScoreValue(activeAssessment.scores, ind);
-                      return (
-                        <tr key={ind.code}>
-                          <td className="py-2 pr-3 font-mono text-slate-500">{ind.excelCode}</td>
-                          <td className="py-2 px-3 font-medium text-slate-900">{ind.title}</td>
-                          <td className="py-2 px-3 text-slate-600">{ind.domain}</td>
-                          <td className="py-2 pl-3 text-right font-mono tabular-nums font-semibold text-slate-900">
-                            {val !== null ? val : <span className="text-slate-400 font-normal">Belum dinilai</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {(() => {
+                      const resolved = resolveAssessmentInstrument(activeAssessment.instrumentVersion, {
+                        allowHistoricalFallback: true,
+                      });
+                      const displayIndicators = resolved.instrument?.indicators || AKHLAK_31_INDICATORS;
+                      return displayIndicators.map((ind) => {
+                        const val = getScoreValue(activeAssessment.scores, ind);
+                        return (
+                          <tr key={ind.code}>
+                            <td className="py-2 pr-3 font-mono text-slate-500">{ind.excelCode}</td>
+                            <td className="py-2 px-3 font-medium text-slate-900">{ind.title}</td>
+                            <td className="py-2 px-3 text-slate-600">{ind.domain}</td>
+                            <td className="py-2 pl-3 text-right font-mono tabular-nums font-semibold text-slate-900">
+                              {val !== null ? val : <span className="text-slate-400 font-normal">Belum dinilai</span>}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>

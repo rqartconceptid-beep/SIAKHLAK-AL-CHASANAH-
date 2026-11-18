@@ -677,6 +677,28 @@ export interface FoundationAdminProfile {
   updatedAt?: unknown;
 }
 
+export type InstrumentVersion = 'v1.0-legacy' | 'v2.0-canonical';
+
+export type InstrumentLifecycleStatus =
+  | 'ACTIVE_PRODUCTION'
+  | 'EMULATOR_TESTING_ONLY'
+  | 'DEPRECATED'
+  | 'ARCHIVED';
+
+export type FoundationApprovalStatus =
+  | 'OPERATIONAL_LEGACY'
+  | 'PENDING_FOUNDATION_DECREE'
+  | 'FORMALLY_APPROVED';
+
+export interface InstrumentMetadata {
+  readonly version: InstrumentVersion;
+  readonly name: string;
+  readonly sourceDocument: string;
+  readonly instrumentStatus: InstrumentLifecycleStatus;
+  readonly approvalStatus: FoundationApprovalStatus;
+  readonly effectiveDate: string | null;
+}
+
 export interface StudentAssessment {
   id: string;
   studentId: string;
@@ -694,6 +716,7 @@ export interface StudentAssessment {
   assessmentYear?: string;
   scores: Record<string, number | null>;
   averageScore: number | null;
+  instrumentVersion?: InstrumentVersion;
   verificationStatus: VerificationStatus;
   isPublishedToParents?: boolean;
   verifiedBy?: string;
@@ -869,48 +892,562 @@ export interface AkhlakIndicatorDef {
   description: string;
 }
 
-export const AKHLAK_31_INDICATORS: readonly AkhlakIndicatorDef[] = [
-  // A. Akidah & Ibadah Wajib (1-7)
-  { code: 'IND_01', excelCode: 'P1', number: 1, domain: 'Akidah & Ibadah', title: 'Ketauhidan dan keyakinan kepada rukun iman', description: 'Menunjukkan keyakinan yang lurus terhadap rukun iman serta menjauhi perilaku syirik dalam keseharian.' },
-  { code: 'IND_02', excelCode: 'P2', number: 2, domain: 'Akidah & Ibadah', title: 'Kedisiplinan sholat fardhu lima waktu', description: 'Melaksanakan sholat fardhu lima waktu tepat waktu dengan kesadaran penuh.' },
-  { code: 'IND_03', excelCode: 'P3', number: 3, domain: 'Akidah & Ibadah', title: 'Pelaksanaan sholat berjamaah di sekolah/masjid', description: 'Mengikuti sholat berjamaah di lingkungan sekolah atau masjid dengan tertib.' },
-  { code: 'IND_04', excelCode: 'P4', number: 4, domain: 'Akidah & Ibadah', title: 'Kesempurnaan tata cara wudhu dan thaharah', description: 'Menerapkan rukun, sunnah wudhu, dan kebersihan diri sebelum beribadah secara benar.' },
-  { code: 'IND_05', excelCode: 'P5', number: 5, domain: 'Akidah & Ibadah', title: 'Kebiasaan sholat sunnah Dhuha dan Rawatib', description: 'Membiasakan sholat sunnah Dhuha dan Rawatib secara konsisten.' },
-  { code: 'IND_06', excelCode: 'P6', number: 6, domain: 'Akidah & Ibadah', title: 'Kemampuan dan kelancaran membaca Al-Qur’an', description: 'Membaca Al-Qur’an dengan makhraj dan kaidah tajwid yang benar.' },
-  { code: 'IND_07', excelCode: 'P7', number: 7, domain: 'Akidah & Ibadah', title: 'Capaian hafalan Al-Qur’an (Tahfidz) sesuai target unit', description: 'Menyetorkan dan menjaga hafalan Al-Qur’an sesuai target jenjang unit pendidikan.' },
+export const LEGACY_31_INDICATORS: readonly AkhlakIndicatorDef[] = [
+  // A. Akidah & Ibadah (1-7)
+  {
+    code: 'IND_01',
+    excelCode: 'P01',
+    number: 1,
+    domain: 'Akidah & Ibadah',
+    title: 'Ketauhidan dan keyakinan kepada rukun iman',
+    description: 'Menunjukkan keyakinan yang lurus terhadap rukun iman serta menjauhi perilaku syirik dalam keseharian.',
+  },
+  {
+    code: 'IND_02',
+    excelCode: 'P02',
+    number: 2,
+    domain: 'Akidah & Ibadah',
+    title: 'Kedisiplinan sholat fardhu lima waktu',
+    description: 'Melaksanakan sholat fardhu lima waktu tepat waktu dengan kesadaran penuh.',
+  },
+  {
+    code: 'IND_03',
+    excelCode: 'P03',
+    number: 3,
+    domain: 'Akidah & Ibadah',
+    title: 'Pelaksanaan sholat berjamaah di sekolah/masjid',
+    description: 'Mengikuti sholat berjamaah di lingkungan sekolah atau masjid dengan tertib.',
+  },
+  {
+    code: 'IND_04',
+    excelCode: 'P04',
+    number: 4,
+    domain: 'Akidah & Ibadah',
+    title: 'Kesempurnaan tata cara wudhu dan thaharah',
+    description: 'Menerapkan rukun, sunnah wudhu, dan kebersihan diri sebelum beribadah secara benar.',
+  },
+  {
+    code: 'IND_05',
+    excelCode: 'P05',
+    number: 5,
+    domain: 'Akidah & Ibadah',
+    title: 'Kebiasaan sholat sunnah Dhuha dan Rawatib',
+    description: 'Membiasakan sholat sunnah Dhuha dan Rawatib secara konsisten.',
+  },
+  {
+    code: 'IND_06',
+    excelCode: 'P06',
+    number: 6,
+    domain: 'Akidah & Ibadah',
+    title: 'Kemampuan dan kelancaran membaca Al-Qur’an',
+    description: 'Membaca Al-Qur’an dengan makhraj dan kaidah tajwid yang benar.',
+  },
+  {
+    code: 'IND_07',
+    excelCode: 'P07',
+    number: 7,
+    domain: 'Akidah & Ibadah',
+    title: 'Capaian hafalan Al-Qur’an (Tahfidz) sesuai target unit',
+    description: 'Menyetorkan dan menjaga hafalan Al-Qur’an sesuai target jenjang unit pendidikan.',
+  },
 
   // B. Dzikir, Doa & Adab Beribadah (8-12)
-  { code: 'IND_08', excelCode: 'P8', number: 8, domain: 'Dzikir & Adab Ibadah', title: 'Pembiasaan dzikir pagi dan petang', description: 'Mengamalkan dzikir pagi dan petang serta dzikir setelah sholat dengan khusyuk.' },
-  { code: 'IND_09', excelCode: 'P9', number: 9, domain: 'Dzikir & Adab Ibadah', title: 'Menghafal dan mengamalkan doa-doa harian', description: 'Membaca doa sebelum dan sesudah beraktivitas harian dengan adab yang baik.' },
-  { code: 'IND_10', excelCode: 'P10', number: 10, domain: 'Dzikir & Adab Ibadah', title: 'Adab di dalam masjid dan majelis ilmu', description: 'Menjaga ketenangan, kesopanan, dan penghormatan saat berada di masjid atau majelis ilmu.' },
-  { code: 'IND_11', excelCode: 'P11', number: 11, domain: 'Dzikir & Adab Ibadah', title: 'Pelaksanaan puasa sunnah dan pemahaman shaum', description: 'Memahami keutamaan shaum serta berpartisipasi dalam pembiasaan puasa sunnah.' },
-  { code: 'IND_12', excelCode: 'P12', number: 12, domain: 'Dzikir & Adab Ibadah', title: 'Kegemaran berinfaq, bersedekah, dan berbagi', description: 'Menunjukkan kerelaan berbagi dan berinfaq melalui program sosial sekolah.' },
+  {
+    code: 'IND_08',
+    excelCode: 'P08',
+    number: 8,
+    domain: 'Dzikir & Adab Ibadah',
+    title: 'Pembiasaan dzikir pagi dan petang',
+    description: 'Mengamalkan dzikir pagi dan petang serta dzikir setelah sholat dengan khusyuk.',
+  },
+  {
+    code: 'IND_09',
+    excelCode: 'P09',
+    number: 9,
+    domain: 'Dzikir & Adab Ibadah',
+    title: 'Menghafal dan mengamalkan doa-doa harian',
+    description: 'Membaca doa sebelum dan sesudah beraktivitas harian dengan adab yang baik.',
+  },
+  {
+    code: 'IND_10',
+    excelCode: 'P10',
+    number: 10,
+    domain: 'Dzikir & Adab Ibadah',
+    title: 'Adab di dalam masjid dan majelis ilmu',
+    description: 'Menjaga ketenangan, kesopanan, dan penghormatan saat berada di masjid atau majelis ilmu.',
+  },
+  {
+    code: 'IND_11',
+    excelCode: 'P11',
+    number: 11,
+    domain: 'Dzikir & Adab Ibadah',
+    title: 'Pelaksanaan puasa sunnah dan pemahaman shaum',
+    description: 'Memahami keutamaan shaum serta berpartisipasi dalam pembiasaan puasa sunnah.',
+  },
+  {
+    code: 'IND_12',
+    excelCode: 'P12',
+    number: 12,
+    domain: 'Dzikir & Adab Ibadah',
+    title: 'Kegemaran berinfaq, bersedekah, dan berbagi',
+    description: 'Menunjukkan kerelaan berbagi dan berinfaq melalui program sosial sekolah.',
+  },
 
   // C. Adab kepada Orang Tua, Guru & Sesama (13-18)
-  { code: 'IND_13', excelCode: 'P13', number: 13, domain: 'Adab Relasional', title: 'Birrul walidain (bakti dan santun kepada orang tua)', description: 'Menghormati, menaati, dan bertutur santun kepada kedua orang tua.' },
-  { code: 'IND_14', excelCode: 'P14', number: 14, domain: 'Adab Relasional', title: 'Takzim dan kepatuhan kepada guru serta pendidik', description: 'Menunjukkan sikap hormat, mendengarkan nasihat, dan menaati arahan guru.' },
-  { code: 'IND_15', excelCode: 'P15', number: 15, domain: 'Adab Relasional', title: 'Membiasakan salam, senyum, dan sapa Islami', description: 'Mengucapkan salam dan menyapa dengan ramah saat bertemu warga sekolah.' },
-  { code: 'IND_16', excelCode: 'P16', number: 16, domain: 'Adab Relasional', title: 'Bertutur kata lembut, sopan, dan menghindari ucapan kasar', description: 'Menggunakan bahasa yang santun dan menghindari kata-kata tercela atau menyakiti.' },
-  { code: 'IND_17', excelCode: 'P17', number: 17, domain: 'Adab Relasional', title: 'Menghormati yang lebih tua dan menyayangi yang lebih muda', description: 'Menjaga adab pergaulan lintas usia dengan penuh kasih sayang dan hormat.' },
-  { code: 'IND_18', excelCode: 'P18', number: 18, domain: 'Adab Relasional', title: 'Menjaga ukhuwah Islamiyah dan menghindari perundungan', description: 'Membangun persaudaraan antar teman serta menolak segala bentuk perundungan.' },
+  {
+    code: 'IND_13',
+    excelCode: 'P13',
+    number: 13,
+    domain: 'Adab Relasional',
+    title: 'Birrul walidain (bakti dan santun kepada orang tua)',
+    description: 'Menghormati, menaati, dan bertutur santun kepada kedua orang tua.',
+  },
+  {
+    code: 'IND_14',
+    excelCode: 'P14',
+    number: 14,
+    domain: 'Adab Relasional',
+    title: 'Takzim dan kepatuhan kepada guru serta pendidik',
+    description: 'Menunjukkan sikap hormat, mendengarkan nasihat, dan menaati arahan guru.',
+  },
+  {
+    code: 'IND_15',
+    excelCode: 'P15',
+    number: 15,
+    domain: 'Adab Relasional',
+    title: 'Membiasakan salam, senyum, dan sapa Islami',
+    description: 'Mengucapkan salam dan menyapa dengan ramah saat bertemu warga sekolah.',
+  },
+  {
+    code: 'IND_16',
+    excelCode: 'P16',
+    number: 16,
+    domain: 'Adab Relasional',
+    title: 'Bertutur kata lembut, sopan, dan menghindari ucapan kasar',
+    description: 'Menggunakan bahasa yang santun dan menghindari kata-kata tercela atau menyakiti.',
+  },
+  {
+    code: 'IND_17',
+    excelCode: 'P17',
+    number: 17,
+    domain: 'Adab Relasional',
+    title: 'Menghormati yang lebih tua dan menyayangi yang lebih muda',
+    description: 'Menjaga adab pergaulan lintas usia dengan penuh kasih sayang dan hormat.',
+  },
+  {
+    code: 'IND_18',
+    excelCode: 'P18',
+    number: 18,
+    domain: 'Adab Relasional',
+    title: 'Menjaga ukhuwah Islamiyah dan menghindari perundungan',
+    description: 'Membangun persaudaraan antar teman serta menolak segala bentuk perundungan.',
+  },
 
   // D. Integritas & Akhlak Pribadi (19-25)
-  { code: 'IND_19', excelCode: 'P19', number: 19, domain: 'Integritas Pribadi', title: 'Kejujuran dalam ucapan, tugas, dan ujian (Shidiq)', description: 'Berkata benar, tidak mencontek, dan mengakui kesalahan secara jujur.' },
-  { code: 'IND_20', excelCode: 'P20', number: 20, domain: 'Integritas Pribadi', title: 'Menjaga amanah dan tanggung jawab tugas (Amanah)', description: 'Menyelesaikan tugas sekolah dan tanggung jawab pribadi dengan dapat dipercaya.' },
-  { code: 'IND_21', excelCode: 'P21', number: 21, domain: 'Integritas Pribadi', title: 'Kerendahan hati dan tidak sombong (Tawadhu)', description: 'Bersikap rendah hati dalam prestasi maupun pergaulan sehari-hari.' },
-  { code: 'IND_22', excelCode: 'P22', number: 22, domain: 'Integritas Pribadi', title: 'Kesabaran dan pengendalian emosi diri (Shabr)', description: 'Mampu menahan amarah dan bersikap tenang ketika menghadapi persoalan.' },
-  { code: 'IND_23', excelCode: 'P23', number: 23, domain: 'Integritas Pribadi', title: 'Rasa syukur atas nikmat Allah SWT (Syukur)', description: 'Menunjukkan sikap berterima kasih dan mensyukuri karunia dalam ucapan dan tindakan.' },
-  { code: 'IND_24', excelCode: 'P24', number: 24, domain: 'Integritas Pribadi', title: 'Menjaga kehormatan diri dan menutup aurat sesuai syariat', description: 'Berpakaian rapi, sopan, dan menutup aurat sesuai ketentuan syariat dan tata tertib.' },
-  { code: 'IND_25', excelCode: 'P25', number: 25, domain: 'Integritas Pribadi', title: 'Kemandirian dan ketekunan dalam belajar (Ijtihad)', description: 'Belajar secara mandiri dan bersungguh-sungguh tanpa bergantung pada orang lain.' },
+  {
+    code: 'IND_19',
+    excelCode: 'P19',
+    number: 19,
+    domain: 'Integritas Pribadi',
+    title: 'Kejujuran dalam ucapan, tugas, dan ujian (Shidiq)',
+    description: 'Berkata benar, tidak mencontek, dan mengakui kesalahan secara jujur.',
+  },
+  {
+    code: 'IND_20',
+    excelCode: 'P20',
+    number: 20,
+    domain: 'Integritas Pribadi',
+    title: 'Menjaga amanah dan tanggung jawab tugas (Amanah)',
+    description: 'Menyelesaikan tugas sekolah dan tanggung jawab pribadi dengan dapat dipercaya.',
+  },
+  {
+    code: 'IND_21',
+    excelCode: 'P21',
+    number: 21,
+    domain: 'Integritas Pribadi',
+    title: 'Kerendahan hati dan tidak sombong (Tawadhu)',
+    description: 'Bersikap rendah hati dalam prestasi maupun pergaulan sehari-hari.',
+  },
+  {
+    code: 'IND_22',
+    excelCode: 'P22',
+    number: 22,
+    domain: 'Integritas Pribadi',
+    title: 'Kesabaran dan pengendalian emosi diri (Shabr)',
+    description: 'Mampu menahan amarah dan bersikap tenang ketika menghadapi persoalan.',
+  },
+  {
+    code: 'IND_23',
+    excelCode: 'P23',
+    number: 23,
+    domain: 'Integritas Pribadi',
+    title: 'Rasa syukur atas nikmat Allah SWT (Syukur)',
+    description: 'Menunjukkan sikap berterima kasih dan mensyukuri karunia dalam ucapan dan tindakan.',
+  },
+  {
+    code: 'IND_24',
+    excelCode: 'P24',
+    number: 24,
+    domain: 'Integritas Pribadi',
+    title: 'Menjaga kehormatan diri dan menutup aurat sesuai syariat',
+    description: 'Berpakaian rapi, sopan, dan menutup aurat sesuai ketentuan syariat dan tata tertib.',
+  },
+  {
+    code: 'IND_25',
+    excelCode: 'P25',
+    number: 25,
+    domain: 'Integritas Pribadi',
+    title: 'Kemandirian dan ketekunan dalam belajar (Ijtihad)',
+    description: 'Belajar secara mandiri dan bersungguh-sungguh tanpa bergantung pada orang lain.',
+  },
 
   // E. Kedisiplinan, Kebersihan & Kepedulian Sosial (26-31)
-  { code: 'IND_26', excelCode: 'P26', number: 26, domain: 'Disiplin & Kepedulian', title: 'Kedisiplinan waktu dan kehadiran belajar', description: 'Hadir tepat waktu dan mematuhi jadwal kegiatan sekolah secara konsisten.' },
-  { code: 'IND_27', excelCode: 'P27', number: 27, domain: 'Disiplin & Kepedulian', title: 'Kebersihan diri, pakaian, dan kerapian penampilan', description: 'Menjaga kebersihan badan, seragam, serta kerapian perlengkapan belajar.' },
-  { code: 'IND_28', excelCode: 'P28', number: 28, domain: 'Disiplin & Kepedulian', title: 'Menjaga kebersihan dan kelestarian lingkungan sekolah', description: 'Membuang sampah pada tempatnya dan turut merawat kebersihan kelas serta fasilitas.' },
-  { code: 'IND_29', excelCode: 'P29', number: 29, domain: 'Disiplin & Kepedulian', title: 'Adab makan, minum, dan menjaga kesehatan jasmani', description: 'Menerapkan adab makan dan minum Islami serta memilih asupan halal dan thayyib.' },
-  { code: 'IND_30', excelCode: 'P30', number: 30, domain: 'Disiplin & Kepedulian', title: 'Kepedulian sosial, empati, dan tolong-menolong (Ta’awun)', description: 'Peka membantu teman atau warga sekolah yang membutuhkan pertolongan.' },
-  { code: 'IND_31', excelCode: 'P31', number: 31, domain: 'Disiplin & Kepedulian', title: 'Etika bermedia digital dan menjaga lisan di ruang daring', description: 'Menggunakan perangkat digital secara bijak, sopan, dan terhindar dari konten negatif.' },
+  {
+    code: 'IND_26',
+    excelCode: 'P26',
+    number: 26,
+    domain: 'Disiplin & Kepedulian',
+    title: 'Kedisiplinan waktu dan kehadiran belajar',
+    description: 'Hadir tepat waktu dan mematuhi jadwal kegiatan sekolah secara konsisten.',
+  },
+  {
+    code: 'IND_27',
+    excelCode: 'P27',
+    number: 27,
+    domain: 'Disiplin & Kepedulian',
+    title: 'Kebersihan diri, pakaian, dan kerapian penampilan',
+    description: 'Menjaga kebersihan badan, seragam, serta kerapian perlengkapan belajar.',
+  },
+  {
+    code: 'IND_28',
+    excelCode: 'P28',
+    number: 28,
+    domain: 'Disiplin & Kepedulian',
+    title: 'Menjaga kebersihan dan kelestarian lingkungan sekolah',
+    description: 'Membuang sampah pada tempatnya dan turut merawat kebersihan kelas serta fasilitas.',
+  },
+  {
+    code: 'IND_29',
+    excelCode: 'P29',
+    number: 29,
+    domain: 'Disiplin & Kepedulian',
+    title: 'Adab makan, minum, dan menjaga kesehatan jasmani',
+    description: 'Menerapkan adab makan dan minum Islami serta memilih asupan halal dan thayyib.',
+  },
+  {
+    code: 'IND_30',
+    excelCode: 'P30',
+    number: 30,
+    domain: 'Disiplin & Kepedulian',
+    title: 'Kepedulian sosial, empati, dan tolong-menolong (Ta’awun)',
+    description: 'Peka membantu teman atau warga sekolah yang membutuhkan pertolongan.',
+  },
+  {
+    code: 'IND_31',
+    excelCode: 'P31',
+    number: 31,
+    domain: 'Disiplin & Kepedulian',
+    title: 'Etika bermedia digital dan menjaga lisan di ruang daring',
+    description: 'Menggunakan perangkat digital secara bijak, sopan, dan terhindar dari konten negatif.',
+  },
 ] as const;
+
+/**
+ * Backward compatibility alias: references the active operational legacy master.
+ */
+export const AKHLAK_31_INDICATORS = LEGACY_31_INDICATORS;
+
+/**
+ * 31 Canonical Akhlak Indicators from Primary Source Document [S2]:
+ * "Format Penilaian Akhlakul Karimah(1).docx"
+ *
+ * Status: Defined for development & Emulator testing only.
+ * Approval Status: PENDING_FOUNDATION_DECREE
+ */
+export const CANONICAL_31_INDICATORS: readonly AkhlakIndicatorDef[] = [
+  // A. Akhlak kepada Allah SWT (1-6)
+  {
+    code: 'IND_01',
+    excelCode: 'P01',
+    number: 1,
+    domain: 'Akhlak kepada Allah SWT',
+    title: 'Melaksanakan ibadah shalat (shalat dhuha dan shalat zuhur berjamaah)',
+    description: 'Melaksanakan ibadah shalat (shalat dhuha dan shalat zuhur berjamaah)',
+  },
+  {
+    code: 'IND_02',
+    excelCode: 'P02',
+    number: 2,
+    domain: 'Akhlak kepada Allah SWT',
+    title: 'Membaca doa, juz amma, dan bersholawat sebelum pelajaran dimulai',
+    description: 'Membaca doa, juz amma, dan bersholawat sebelum pelajaran dimulai',
+  },
+  {
+    code: 'IND_03',
+    excelCode: 'P03',
+    number: 3,
+    domain: 'Akhlak kepada Allah SWT',
+    title: "Mengikuti kegiatan tahfiz, membaca surah Yasin, dan sholawat Imrithi (khusus hari Jum'at)",
+    description: "Mengikuti kegiatan tahfiz, membaca surah Yasin, dan sholawat Imrithi (khusus hari Jum'at)",
+  },
+  {
+    code: 'IND_04',
+    excelCode: 'P04',
+    number: 4,
+    domain: 'Akhlak kepada Allah SWT',
+    title: 'Selalu bersyukur atas nikmat yang diberikan Allah SWT',
+    description: 'Selalu bersyukur atas nikmat yang diberikan Allah SWT',
+  },
+  {
+    code: 'IND_05',
+    excelCode: 'P05',
+    number: 5,
+    domain: 'Akhlak kepada Allah SWT',
+    title: 'Berdoa kepada Allah SWT dalam setiap kegiatan',
+    description: 'Berdoa kepada Allah SWT dalam setiap kegiatan',
+  },
+  {
+    code: 'IND_06',
+    excelCode: 'P06',
+    number: 6,
+    domain: 'Akhlak kepada Allah SWT',
+    title: 'Bertawakal hanya kepada Allah SWT setelah berikhtiar',
+    description: 'Bertawakal hanya kepada Allah SWT setelah berikhtiar',
+  },
+
+  // B. Akhlak terhadap Rasul (7-8)
+  {
+    code: 'IND_07',
+    excelCode: 'P07',
+    number: 7,
+    domain: 'Akhlak terhadap Rasul',
+    title: 'Meneladani sifat-sifat Rasulullah SAW (shidiq/jujur, amanah) dalam keseharian',
+    description: 'Meneladani sifat-sifat Rasulullah SAW (shidiq/jujur, amanah) dalam keseharian',
+  },
+  {
+    code: 'IND_08',
+    excelCode: 'P08',
+    number: 8,
+    domain: 'Akhlak terhadap Rasul',
+    title: 'Mencintai Nabi dan Rasul dengan membiasakan bersholawat',
+    description: 'Mencintai Nabi dan Rasul dengan membiasakan bersholawat',
+  },
+
+  // C. Akhlak terhadap Orang Tua (9-15)
+  {
+    code: 'IND_09',
+    excelCode: 'P09',
+    number: 9,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Selalu berbakti kepada orang tua',
+    description: 'Selalu berbakti kepada orang tua',
+  },
+  {
+    code: 'IND_10',
+    excelCode: 'P10',
+    number: 10,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Selalu mendoakan orang tua',
+    description: 'Selalu mendoakan orang tua',
+  },
+  {
+    code: 'IND_11',
+    excelCode: 'P11',
+    number: 11,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Membantu pekerjaan orang tua',
+    description: 'Membantu pekerjaan orang tua',
+  },
+  {
+    code: 'IND_12',
+    excelCode: 'P12',
+    number: 12,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Menaati perintah orang tua',
+    description: 'Menaati perintah orang tua',
+  },
+  {
+    code: 'IND_13',
+    excelCode: 'P13',
+    number: 13,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Berkata dengan sopan dan lembut saat berbicara dengan orang tua',
+    description: 'Berkata dengan sopan dan lembut saat berbicara dengan orang tua',
+  },
+  {
+    code: 'IND_14',
+    excelCode: 'P14',
+    number: 14,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Melakukan hal-hal yang membuat orang tua senang dan bangga',
+    description: 'Melakukan hal-hal yang membuat orang tua senang dan bangga',
+  },
+  {
+    code: 'IND_15',
+    excelCode: 'P15',
+    number: 15,
+    domain: 'Akhlak terhadap Orang Tua',
+    title: 'Menjauhi perbuatan buruk terhadap orang tua',
+    description: 'Menjauhi perbuatan buruk terhadap orang tua',
+  },
+
+  // D. Akhlak terhadap Guru (16-21)
+  {
+    code: 'IND_16',
+    excelCode: 'P16',
+    number: 16,
+    domain: 'Akhlak terhadap Guru',
+    title: 'Mengucap salam dan menyapa ketika berjumpa dengan guru',
+    description: 'Mengucap salam dan menyapa ketika berjumpa dengan guru',
+  },
+  {
+    code: 'IND_17',
+    excelCode: 'P17',
+    number: 17,
+    domain: 'Akhlak terhadap Guru',
+    title: 'Bersikap sopan dan santun ketika berbicara kepada guru',
+    description: 'Bersikap sopan dan santun ketika berbicara kepada guru',
+  },
+  {
+    code: 'IND_18',
+    excelCode: 'P18',
+    number: 18,
+    domain: 'Akhlak terhadap Guru',
+    title: 'Bersikap hormat terhadap guru',
+    description: 'Bersikap hormat terhadap guru',
+  },
+  {
+    code: 'IND_19',
+    excelCode: 'P19',
+    number: 19,
+    domain: 'Akhlak terhadap Guru',
+    title: 'Mencium tangan guru ketika bertemu',
+    description: 'Mencium tangan guru ketika bertemu',
+  },
+  {
+    code: 'IND_20',
+    excelCode: 'P20',
+    number: 20,
+    domain: 'Akhlak terhadap Guru',
+    title: 'Melaksanakan apa yang diperintahkan oleh guru',
+    description: 'Melaksanakan apa yang diperintahkan oleh guru',
+  },
+  {
+    code: 'IND_21',
+    excelCode: 'P21',
+    number: 21,
+    domain: 'Akhlak terhadap Guru',
+    title: 'Mendengarkan dengan baik saat guru menjelaskan pelajaran',
+    description: 'Mendengarkan dengan baik saat guru menjelaskan pelajaran',
+  },
+
+  // E. Akhlak terhadap Sesama Teman (22-31)
+  {
+    code: 'IND_22',
+    excelCode: 'P22',
+    number: 22,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Tidak menyakiti hati teman, baik melalui ucapan maupun perbuatan',
+    description: 'Tidak menyakiti hati teman, baik melalui ucapan maupun perbuatan',
+  },
+  {
+    code: 'IND_23',
+    excelCode: 'P23',
+    number: 23,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Menolong teman yang membutuhkan pertolongan',
+    description: 'Menolong teman yang membutuhkan pertolongan',
+  },
+  {
+    code: 'IND_24',
+    excelCode: 'P24',
+    number: 24,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Memanggil teman dengan sebutan yang baik dan tidak mengejek',
+    description: 'Memanggil teman dengan sebutan yang baik dan tidak mengejek',
+  },
+  {
+    code: 'IND_25',
+    excelCode: 'P25',
+    number: 25,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Saling memaafkan jika ada teman yang berbuat salah',
+    description: 'Saling memaafkan jika ada teman yang berbuat salah',
+  },
+  {
+    code: 'IND_26',
+    excelCode: 'P26',
+    number: 26,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Membiasakan senyum, salam, dan sapa (3S) kepada teman',
+    description: 'Membiasakan senyum, salam, dan sapa (3S) kepada teman',
+  },
+  {
+    code: 'IND_27',
+    excelCode: 'P27',
+    number: 27,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Bersikap pemaaf terhadap sesama',
+    description: 'Bersikap pemaaf terhadap sesama',
+  },
+  {
+    code: 'IND_28',
+    excelCode: 'P28',
+    number: 28,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Memiliki kasih sayang dan saling menghormati sesama',
+    description: 'Memiliki kasih sayang dan saling menghormati sesama',
+  },
+  {
+    code: 'IND_29',
+    excelCode: 'P29',
+    number: 29,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Bersikap adil dalam berperilaku dengan sesama, tidak membeda-bedakan teman',
+    description: 'Bersikap adil dalam berperilaku dengan sesama, tidak membeda-bedakan teman',
+  },
+  {
+    code: 'IND_30',
+    excelCode: 'P30',
+    number: 30,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Bersikap jujur dalam menyampaikan sesuatu sesuai kenyataan',
+    description: 'Bersikap jujur dalam menyampaikan sesuatu sesuai kenyataan',
+  },
+  {
+    code: 'IND_31',
+    excelCode: 'P31',
+    number: 31,
+    domain: 'Akhlak terhadap Sesama Teman',
+    title: 'Bertutur kata sopan dan santun, serta menjaga perbuatan',
+    description: 'Bertutur kata sopan dan santun, serta menjaga perbuatan',
+  },
+] as const;
+
+export interface InstrumentDefinition extends InstrumentMetadata {
+  readonly indicators: readonly AkhlakIndicatorDef[];
+}
+
+export const INSTRUMENT_DEFINITIONS: Readonly<Record<InstrumentVersion, InstrumentDefinition>> = {
+  'v1.0-legacy': {
+    version: 'v1.0-legacy',
+    name: 'Instrumen Penilaian Akhlakul Karimah v1.0 (Legacy Operational)',
+    sourceDocument: 'Master Aplikasi Bawaan Sistem (src/types/siakhlak.ts)',
+    instrumentStatus: 'ACTIVE_PRODUCTION',
+    approvalStatus: 'OPERATIONAL_LEGACY',
+    effectiveDate: null,
+    indicators: LEGACY_31_INDICATORS,
+  },
+  'v2.0-canonical': {
+    version: 'v2.0-canonical',
+    name: 'Instrumen Penilaian Akhlakul Karimah v2.0 (Resmi Yayasan Al-Chasanah)',
+    sourceDocument: 'Format Penilaian Akhlakul Karimah(1).docx [S2]',
+    instrumentStatus: 'EMULATOR_TESTING_ONLY',
+    approvalStatus: 'PENDING_FOUNDATION_DECREE',
+    effectiveDate: null,
+    indicators: CANONICAL_31_INDICATORS,
+  },
+} as const;
 
 export type MasterSubmenuKey =
   | 'unit_pendidikan'
@@ -959,7 +1496,7 @@ export type StudentParentMenuKey =
 
 export type ActiveMenuKey = KomiteMenuKey | CoreMenuKey | StudentParentMenuKey;
 
-export type DbConnectionStatus = 'CHECKING' | 'CONNECTED' | 'NOT CONNECTED';
+export type DbConnectionStatus = 'CONNECTING' | 'CHECKING' | 'CONNECTED' | 'NOT CONNECTED';
 
 export function getScoreValue(
   scores: Record<string, number | null> | undefined,
@@ -968,6 +1505,16 @@ export function getScoreValue(
   if (!scores) return null;
   if (ind.excelCode in scores) {
     const val = scores[ind.excelCode];
+    return typeof val === 'number' && !Number.isNaN(val) ? val : null;
+  }
+  const alt1 = ind.excelCode.replace(/^P0(\d)$/, 'P$1');
+  if (alt1 in scores) {
+    const val = scores[alt1];
+    return typeof val === 'number' && !Number.isNaN(val) ? val : null;
+  }
+  const alt2 = ind.excelCode.replace(/^P(\d)$/, 'P0$1');
+  if (alt2 in scores) {
+    const val = scores[alt2];
     return typeof val === 'number' && !Number.isNaN(val) ? val : null;
   }
   if (ind.code in scores) {
